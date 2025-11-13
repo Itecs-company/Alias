@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+import asyncio
+import io
+from typing import Iterable
+
+import httpx
+from bs4 import BeautifulSoup
+from loguru import logger
+from pypdf import PdfReader
+
+
+async def fetch_bytes(url: str) -> bytes | None:
+    timeout = httpx.Timeout(20.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to download {url}: {exc}", url=url, exc=exc)
+            return None
+    return response.content
+
+
+def extract_text_from_pdf(data: bytes) -> str:
+    reader = PdfReader(io.BytesIO(data))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+
+def extract_text_from_html(data: bytes) -> str:
+    soup = BeautifulSoup(data, "html.parser")
+    for script in soup(["script", "style"]):
+        script.extract()
+    return "\n".join(line.strip() for line in soup.get_text("\n").splitlines() if line.strip())
+
+
+async def extract_text(url: str) -> str | None:
+    data = await fetch_bytes(url)
+    if not data:
+        return None
+
+    if url.lower().endswith(".pdf"):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, extract_text_from_pdf, data)
+    return extract_text_from_html(data)
+
+
+async def extract_from_urls(urls: Iterable[str]) -> dict[str, str]:
+    tasks = [extract_text(url) for url in urls]
+    contents = await asyncio.gather(*tasks)
+    return {url: content for url, content in zip(urls, contents, strict=False) if content}
