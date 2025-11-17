@@ -73,17 +73,29 @@ class OpenAISearchProvider(SearchProvider):
 
         system_prompt = (
             "You are a sourcing assistant. Given an electronic component part number, "
-            "return reputable URLs (datasheets, manufacturer pages) containing the manufacturer name."
+            "return reputable URLs (datasheets, manufacturer pages) containing the manufacturer name. "
+            "Respond strictly with a JSON array where each item has 'title', 'url', and optional 'summary' fields."
         )
-        completion = await self.client.responses.create(
+        completion = await self.client.chat.completions.create(
             model=self.model,
-            input=[
+            messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": query},
+                {"role": "user", "content": f"Return JSON: {query}"},
             ],
-            max_output_tokens=500,
+            temperature=0,
+            max_tokens=500,
         )
-        output = completion.output[0].content[0].text  # type: ignore[index]
+        choice = completion.choices[0]
+        output: str | list[dict[str, str]] | None = None
+        if choice.message:
+            output = choice.message.content
+        if isinstance(output, list):
+            output = "".join(part.get("text", "") if isinstance(part, dict) else str(part) for part in output)
+        elif output is None:
+            output = ""
+        if not output:
+            logger.debug("OpenAI search returned empty content for query '%s'", query)
+            return []
         try:
             data = json.loads(output)
         except json.JSONDecodeError:
@@ -142,8 +154,17 @@ class GoogleCustomSearchProvider(SearchProvider):
 
         params = {"key": self.api_key, "cx": self.cx, "q": query, "num": max_results}
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
-            response = await client.get(self.base_url, params=params)
-            response.raise_for_status()
+            try:
+                response = await client.get(self.base_url, params=params)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "Google Custom Search error %s for query '%s': %s",
+                    exc.response.status_code if exc.response else "?",
+                    query,
+                    exc.response.text if exc.response else exc,
+                )
+                return []
             payload = response.json()
 
         items = payload.get("items", [])
