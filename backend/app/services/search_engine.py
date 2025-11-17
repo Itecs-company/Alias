@@ -12,7 +12,12 @@ from app.models.part import Manufacturer, ManufacturerAlias, Part
 from app.schemas.part import PartBase, SearchResult
 
 from .document_parser import extract_from_urls
-from .search_providers import SearchProvider, get_default_providers, get_fallback_provider
+from .search_providers import (
+    SearchProvider,
+    get_default_providers,
+    get_fallback_provider,
+    get_google_provider,
+)
 
 
 @dataclass
@@ -53,10 +58,12 @@ class PartSearchEngine:
         self,
         session: AsyncSession,
         providers: list[SearchProvider] | None = None,
+        google_provider: SearchProvider | None = None,
         fallback_provider: SearchProvider | None = None,
     ):
         self.session = session
         self.providers = providers or get_default_providers()
+        self.google_provider = google_provider or get_google_provider()
         self.fallback_provider = fallback_provider or get_fallback_provider()
         self.resolver = ManufacturerResolver(session)
 
@@ -75,6 +82,8 @@ class PartSearchEngine:
         urls: list[str] = []
         for provider in self.providers:
             urls.extend(await self._search_with_provider(provider, query))
+        if not urls and self.google_provider:
+            urls.extend(await self._search_with_provider(self.google_provider, query))
         if not urls:
             urls.extend(await self._search_with_provider(self.fallback_provider, query))
         seen: set[str] = set()

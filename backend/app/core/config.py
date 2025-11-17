@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     serpapi_key: str | None = None
     serpapi_search_engine: str = Field(default="google")
     serpapi_yahoo_engine: str = Field(default="yahoo")
+    google_cse_api_key: str | None = None
+    google_cse_cx: str | None = None
     openai_api_key: str | None = None
     allowed_origins: List[str] = Field(default_factory=lambda: ["*"])
     storage_dir: Path = Field(default=Path("storage"))

@@ -92,11 +92,53 @@ class OpenAISearchProvider(SearchProvider):
         return results[:max_results]
 
 
+class GoogleCustomSearchProvider(SearchProvider):
+    base_url = "https://www.googleapis.com/customsearch/v1"
+
+    def __init__(self) -> None:
+        self.name = "google-custom-search"
+        self.api_key = settings.google_cse_api_key
+        self.cx = settings.google_cse_cx
+        if not (self.api_key and self.cx):
+            logger.warning(
+                "Google Custom Search credentials are missing. {name} will not return results.",
+                name=self.name,
+            )
+
+    async def search(self, query: str, *, max_results: int = 5) -> list[dict[str, Any]]:
+        if not (self.api_key and self.cx):
+            return []
+
+        params = {"key": self.api_key, "cx": self.cx, "q": query, "num": max_results}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(self.base_url, params=params)
+            response.raise_for_status()
+            payload = response.json()
+
+        items = payload.get("items", [])
+        results: list[dict[str, Any]] = []
+        for item in items:
+            link = item.get("link")
+            if link:
+                results.append(
+                    {
+                        "title": item.get("title", link),
+                        "link": link,
+                        "snippet": item.get("snippet"),
+                    }
+                )
+        return results[:max_results]
+
+
 def get_default_providers() -> list[SearchProvider]:
     return [
         SerpAPISearchProvider(settings.serpapi_search_engine),
         SerpAPISearchProvider(settings.serpapi_yahoo_engine),
     ]
+
+
+def get_google_provider() -> SearchProvider:
+    return GoogleCustomSearchProvider()
 
 
 def get_fallback_provider() -> SearchProvider:
