@@ -186,10 +186,7 @@ class GoogleCustomSearchProvider(SearchProvider):
 
 
 def get_default_providers() -> list[SearchProvider]:
-    return [
-        SerpAPISearchProvider(settings.serpapi_search_engine),
-        SerpAPISearchProvider(settings.serpapi_yahoo_engine),
-    ]
+    return [SerpAPISearchProvider(settings.serpapi_search_engine)]
 
 
 def get_google_provider() -> SearchProvider:

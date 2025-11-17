@@ -13,7 +13,6 @@ class Settings(BaseSettings):
     database_url: str = Field(default="sqlite+aiosqlite:///./alias.db")
     serpapi_key: str | None = None
     serpapi_search_engine: str = Field(default="google")
-    serpapi_yahoo_engine: str = Field(default="yahoo")
     google_cse_api_key: str | None = None
     google_cse_cx: str | None = None
     openai_api_key: str | None = None
