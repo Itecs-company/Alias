@@ -1,10 +1,29 @@
 import axios from 'axios'
 import { ExportResponse, PartRead, SearchResponse, UploadResponse, PartRequestItem } from './types'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api'
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
+const isLocalhost = (url: string) => /https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(url)
+const shouldUseWindowOrigin =
+  !rawBaseUrl ||
+  (typeof window !== 'undefined' && rawBaseUrl.startsWith('http') && isLocalhost(rawBaseUrl) &&
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1')
+
+const resolvedBase = (() => {
+  if (shouldUseWindowOrigin && typeof window !== 'undefined') {
+    return `${window.location.origin}/api`
+  }
+  if (!rawBaseUrl) {
+    return '/api'
+  }
+  if (rawBaseUrl.startsWith('http')) {
+    return rawBaseUrl
+  }
+  return rawBaseUrl.startsWith('/') ? rawBaseUrl : `/${rawBaseUrl}`
+})()
 
 const client = axios.create({
-  baseURL: API_BASE_URL
+  baseURL: resolvedBase
 })
 
 export const searchParts = async (items: PartRequestItem[], debug: boolean) => {
