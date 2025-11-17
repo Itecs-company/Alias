@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     google_cse_api_key: str | None = None
     google_cse_cx: str | None = None
     openai_api_key: str | None = None
+    openai_model_default: str = Field(default="gpt-4.1")
+    openai_balance_threshold_usd: float | None = None
+    proxy_host: str | None = None
+    proxy_port: int | None = None
+    proxy_username: str | None = None
+    proxy_password: str | None = None
     allowed_origins: List[str] = Field(default_factory=lambda: ["*"])
     storage_dir: Path = Field(default=Path("storage"))
 
@@ -29,6 +35,15 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @property
+    def proxy_url(self) -> str | None:
+        if not (self.proxy_host and self.proxy_port):
+            return None
+        credentials = ""
+        if self.proxy_username and self.proxy_password:
+            credentials = f"{self.proxy_username}:{self.proxy_password}@"
+        return f"socks5://{credentials}{self.proxy_host}:{self.proxy_port}"
 
 
 @lru_cache

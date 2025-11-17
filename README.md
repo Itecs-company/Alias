@@ -101,6 +101,10 @@ npm run dev
 | `GOOGLE_CSE_API_KEY` | API-ключ для Google Custom Search |
 | `GOOGLE_CSE_CX` | Идентификатор поисковой машины (cx) для Google Custom Search |
 | `OPENAI_API_KEY` | Ключ OpenAI для fallback-поиска |
+| `OPENAI_MODEL_DEFAULT` | Модель OpenAI, используемая для поиска (по умолчанию `gpt-4.1`) |
+| `OPENAI_BALANCE_THRESHOLD_USD` | При задании выводит предупреждение, если баланс OpenAI ниже порога |
+| `PROXY_HOST`/`PROXY_PORT` | SOCKS5 прокси для исходящих запросов SerpAPI/Google/OpenAI |
+| `PROXY_USERNAME`/`PROXY_PASSWORD` | Учетные данные прокси (если требуются) |
 | `ALLOWED_ORIGINS` | Разрешённые Origin для CORS (через запятую) |
 | `STORAGE_DIR` | Каталог для экспорта файлов (по умолчанию `storage/`) |
 
@@ -108,8 +112,8 @@ npm run dev
 
 1. **SerpAPI**: зарегистрируйтесь на https://serpapi.com, создайте ключ и вставьте в `SERPAPI_KEY`.
 2. **Google Custom Search**: получите API-ключ (https://developers.google.com/custom-search/v1/overview) и идентификатор поисковой машины `cx`, пропишите их в `GOOGLE_CSE_API_KEY` и `GOOGLE_CSE_CX`.
-3. **OpenAI**: создайте ключ на https://platform.openai.com и укажите его в `OPENAI_API_KEY`.
-4. При необходимости используйте прокси/ограничения для исходящих запросов (см. SerpAPI документацию по Google/Yahoo).
+3. **OpenAI**: создайте ключ на https://platform.openai.com и укажите его в `OPENAI_API_KEY`. При необходимости измените `OPENAI_MODEL_DEFAULT` (по умолчанию `gpt-4.1`) и задайте `OPENAI_BALANCE_THRESHOLD_USD`, чтобы получать предупреждения в логах при низком остатке средств.
+4. **SOCKS5-прокси**: пропишите `PROXY_HOST`, `PROXY_PORT`, а также `PROXY_USERNAME`/`PROXY_PASSWORD`, если провайдер требует аутентификацию (например, `PROXY_HOST=194.5.62.55`, `PROXY_PORT=17668`). Один и тот же прокси используется всеми HTTP-клиентами (SerpAPI, Google Custom Search, парсер документов и OpenAI).
 
 ### 4. Импорт через API
 

@@ -9,10 +9,14 @@ from bs4 import BeautifulSoup
 from loguru import logger
 from pypdf import PdfReader
 
+from app.core.http import httpx_client_kwargs
+
 
 async def fetch_bytes(url: str) -> bytes | None:
     timeout = httpx.Timeout(20.0, connect=10.0)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        **httpx_client_kwargs(timeout=timeout, follow_redirects=True)
+    ) as client:
         try:
             response = await client.get(url)
             response.raise_for_status()

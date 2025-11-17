@@ -9,6 +9,7 @@ from loguru import logger
 from openai import AsyncOpenAI
 
 from app.core.config import get_settings
+from app.core.http import httpx_client_kwargs
 
 settings = get_settings()
 
@@ -40,7 +41,7 @@ class SerpAPISearchProvider(SearchProvider):
             "num": max_results,
             "api_key": settings.serpapi_key,
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             response = await client.get(self.base_url, params=params)
             response.raise_for_status()
             payload = response.json()
@@ -59,18 +60,23 @@ class OpenAISearchProvider(SearchProvider):
             logger.warning("OpenAI API key is missing. openai provider will not return results.")
             self.client: AsyncOpenAI | None = None
         else:
-            self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+            http_client = httpx.AsyncClient(**httpx_client_kwargs())
+            self.client = AsyncOpenAI(api_key=settings.openai_api_key, http_client=http_client)
+        self.model = settings.openai_model_default
+        self._balance_checked = False
 
     async def search(self, query: str, *, max_results: int = 5) -> list[dict[str, Any]]:
         if not self.client:
             return []
+
+        await self._maybe_warn_low_balance()
 
         system_prompt = (
             "You are a sourcing assistant. Given an electronic component part number, "
             "return reputable URLs (datasheets, manufacturer pages) containing the manufacturer name."
         )
         completion = await self.client.responses.create(
-            model="gpt-4.1-mini",
+            model=self.model,
             input=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": query},
@@ -91,6 +97,31 @@ class OpenAISearchProvider(SearchProvider):
                 results.append({"title": item.get("title", url), "link": url, "snippet": item.get("summary")})
         return results[:max_results]
 
+    async def _maybe_warn_low_balance(self) -> None:
+        if self._balance_checked or settings.openai_balance_threshold_usd is None:
+            return
+        if not settings.openai_api_key:
+            return
+        self._balance_checked = True
+        url = "https://api.openai.com/dashboard/billing/credit_grants"
+        headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
+        try:
+            async with httpx.AsyncClient(**httpx_client_kwargs(timeout=httpx.Timeout(15.0))) as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to check OpenAI balance: {exc}", exc=exc)
+            return
+        available = payload.get("total_available")
+        threshold = settings.openai_balance_threshold_usd
+        if isinstance(available, (int, float)) and threshold is not None and available <= threshold:
+            logger.warning(
+                "OpenAI remaining balance {balance:.2f} USD is below configured threshold {threshold:.2f} USD",
+                balance=available,
+                threshold=threshold,
+            )
+
 
 class GoogleCustomSearchProvider(SearchProvider):
     base_url = "https://www.googleapis.com/customsearch/v1"
@@ -110,7 +141,7 @@ class GoogleCustomSearchProvider(SearchProvider):
             return []
 
         params = {"key": self.api_key, "cx": self.cx, "q": query, "num": max_results}
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             response = await client.get(self.base_url, params=params)
             response.raise_for_status()
             payload = response.json()
