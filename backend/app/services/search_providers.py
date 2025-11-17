@@ -165,6 +165,9 @@ class GoogleCustomSearchProvider(SearchProvider):
                     exc.response.text if exc.response else exc,
                 )
                 return []
+            except httpx.HTTPError as exc:
+                logger.warning("Google Custom Search request failed for '%s': %s", query, exc)
+                return []
             payload = response.json()
 
         items = payload.get("items", [])

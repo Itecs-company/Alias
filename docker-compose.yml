@@ -7,8 +7,9 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      STORAGE_DIR: /data/storage
-      DATABASE_URL: sqlite+aiosqlite:////data/alias.db
+      - STORAGE_DIR=/data/storage
+      - DATABASE_URL=sqlite+aiosqlite:////data/alias.db
+      - ALLOWED_ORIGINS=["http://localhost:5173","http://localhost:3000"]
     volumes:
       - backend_data:/data
     ports:
@@ -18,7 +19,7 @@ services:
     build:
       context: ./frontend
     environment:
-      VITE_BACKEND_URL: http://backend:8000
+      - VITE_BACKEND_URL=http://backend:8000
     ports:
       - "5173:5173"
     depends_on:

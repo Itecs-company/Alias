@@ -107,7 +107,7 @@ npm run dev
 | `OPENAI_BALANCE_THRESHOLD_USD` | При задании выводит предупреждение, если баланс OpenAI ниже порога |
 | `PROXY_HOST`/`PROXY_PORT` | SOCKS5 прокси для исходящих запросов SerpAPI/Google/OpenAI |
 | `PROXY_USERNAME`/`PROXY_PASSWORD` | Учетные данные прокси (если требуются) |
-| `ALLOWED_ORIGINS` | Разрешённые Origin для CORS (через запятую) |
+| `ALLOWED_ORIGINS` | Разрешённые Origin для CORS (строка через запятую **или** JSON-массив) |
 | `STORAGE_DIR` | Каталог для экспорта файлов (по умолчанию `storage/`) |
 
 #### Настройка ключей
