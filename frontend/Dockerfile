@@ -8,6 +8,7 @@ RUN npm install
 COPY . .
 
 ENV VITE_BACKEND_URL=http://backend:8000
+ENV VITE_API_BASE_URL=http://localhost:8000/api
 
 EXPOSE 5173
 
