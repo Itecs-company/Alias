@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 from loguru import logger
 from openai import AsyncOpenAI
+from bs4 import BeautifulSoup
 
 from app.core.config import get_settings
 from app.core.http import httpx_client_kwargs
@@ -185,8 +187,75 @@ class GoogleCustomSearchProvider(SearchProvider):
         return results[:max_results]
 
 
+class GoogleWebSearchProvider(SearchProvider):
+    search_url = "https://www.google.com/search"
+
+    def __init__(self) -> None:
+        self.name = "googlesearch"
+        self.headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/121.0 Safari/537.36"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+
+    async def search(self, query: str, *, max_results: int = 5) -> list[dict[str, Any]]:
+        params = {
+            "q": query,
+            "num": str(max_results * 2),  # fetch a few extras so we can filter redirects
+            "hl": "en",
+        }
+        async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
+            try:
+                response = await client.get(self.search_url, params=params, headers=self.headers)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "Google web search returned %s for query '%s'",
+                    exc.response.status_code if exc.response else "?",
+                    query,
+                )
+                return []
+            except httpx.HTTPError as exc:
+                logger.warning("Google web search failed for '%s': %s", query, exc)
+                return []
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        results: list[dict[str, Any]] = []
+        for block in soup.select("div.g"):
+            anchor = block.select_one("a")
+            title_tag = block.select_one("h3")
+            if not anchor or not title_tag:
+                continue
+            href = self._clean_link(anchor.get("href"))
+            if not href:
+                continue
+            snippet_tag = block.select_one("div.IsZvec")
+            snippet = snippet_tag.get_text(strip=True) if snippet_tag else None
+            results.append({"title": title_tag.get_text(strip=True), "link": href, "snippet": snippet})
+            if len(results) >= max_results:
+                break
+        return results
+
+    def _clean_link(self, url: str | None) -> str | None:
+        if not url:
+            return None
+        if url.startswith("/url"):
+            parsed = urlparse(url)
+            qs = parse_qs(parsed.query)
+            link = qs.get("q", [None])[0]
+            return link
+        if url.startswith("/imgres"):
+            return None
+        return url
+
+
 def get_default_providers() -> list[SearchProvider]:
-    return [SerpAPISearchProvider(settings.serpapi_search_engine)]
+    providers: list[SearchProvider] = [GoogleWebSearchProvider()]
+    if settings.serpapi_key:
+        providers.append(SerpAPISearchProvider(settings.serpapi_search_engine))
+    return providers
 
 
 def get_google_provider() -> SearchProvider:

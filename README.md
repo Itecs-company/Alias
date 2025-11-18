@@ -101,8 +101,8 @@ npm run dev
 | `APP_NAME` | Название приложения в Swagger/интерфейсе |
 | `DEBUG` | `true` включает подробные логи и echo SQL |
 | `DATABASE_URL` | Строка подключения SQLAlchemy (по умолчанию SQLite) |
-| `SERPAPI_KEY` | Ключ SerpAPI для первичного Google-поиска |
-| `SERPAPI_SEARCH_ENGINE` | Имя поискового движка (например, `google`) |
+| `SERPAPI_KEY` | (Опционально) ключ SerpAPI для дополнительного Google-поиска |
+| `SERPAPI_SEARCH_ENGINE` | Имя поискового движка SerpAPI (по умолчанию `google`) |
 | `GOOGLE_CSE_API_KEY` | API-ключ для Google Custom Search |
 | `GOOGLE_CSE_CX` | Идентификатор поисковой машины (cx) для Google Custom Search |
 | `OPENAI_API_KEY` | Ключ OpenAI для fallback-поиска |
@@ -120,7 +120,7 @@ npm run dev
 
 #### Настройка ключей
 
-1. **SerpAPI**: зарегистрируйтесь на https://serpapi.com, создайте ключ и вставьте в `SERPAPI_KEY`.
+1. **SerpAPI (необязательно)**: зарегистрируйтесь на https://serpapi.com, создайте ключ и вставьте в `SERPAPI_KEY`, чтобы добавить ещё один источник Google-результатов.
 2. **Google Custom Search**: получите API-ключ (https://developers.google.com/custom-search/v1/overview) и идентификатор поисковой машины `cx`, пропишите их в `GOOGLE_CSE_API_KEY` и `GOOGLE_CSE_CX`.
 3. **OpenAI**: создайте ключ на https://platform.openai.com и укажите его в `OPENAI_API_KEY`. При необходимости измените `OPENAI_MODEL_DEFAULT` (по умолчанию `gpt-4.1`) и задайте `OPENAI_BALANCE_THRESHOLD_USD`, чтобы получать предупреждения в логах при низком остатке средств.
 4. **SOCKS5-прокси**: пропишите `PROXY_HOST`, `PROXY_PORT`, а также `PROXY_USERNAME`/`PROXY_PASSWORD`, если провайдер требует аутентификацию (например, `PROXY_HOST=194.5.62.55`, `PROXY_PORT=17668`). Один и тот же прокси используется всеми HTTP-клиентами (SerpAPI, Google Custom Search, парсер документов и OpenAI).
@@ -188,12 +188,12 @@ debug=true
 ### 6. Логика поиска
 
 1. Формируется запрос `"<part_number> <manufacturer_hint> datasheet manufacturer"`.
-2. Поочерёдно вызывается SerpAPI (Google).
-3. Если прямой интернет-поиск ничего не нашёл, выполняется запрос через Google Custom Search (CX/ключ из `.env`).
+2. Выполняется прямой веб-поиск Google через общий HTTP-клиент (через SOCKS5-прокси). Если указан `SERPAPI_KEY`, дополнительно опрашивается SerpAPI с тем же запросом.
+3. Если ни один из интернет-источников не дал URL, выполняется запрос через Google Custom Search (CX/ключ из `.env`).
 4. Если и Google Custom Search не дал результатов — запускается OpenAI (модель `gpt-4.1` по умолчанию, задаётся `OPENAI_MODEL_DEFAULT`), который возвращает релевантные URL через тот же SOCKS5-прокси.
-3. Скачиваются до 6 уникальных ссылок, извлекается текст (PDF → PyPDF, HTML → BeautifulSoup).
-4. Эвристики `rapidfuzz` сопоставляют производителя по найденным контекстам. Алиасы синхронизируются и сохраняются.
-5. Лучший кандидат (по confidence) записывается в БД.
+5. Скачиваются до 6 уникальных ссылок, извлекается текст (PDF → PyPDF, HTML → BeautifulSoup).
+6. Эвристики `rapidfuzz` сопоставляют производителя по найденным контекстам. Алиасы синхронизируются и сохраняются.
+7. Лучший кандидат (по confidence) записывается в БД.
 
 ### 7. Экспорт/Импорт файлов
 
