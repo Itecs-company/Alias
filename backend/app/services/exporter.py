@@ -13,23 +13,22 @@ from app.models.part import Part
 settings = get_settings()
 
 
+def _build_table_rows(parts: list[Part]) -> list[dict[str, str | int]]:
+    rows: list[dict[str, str | int]] = []
+    for idx, part in enumerate(parts, start=1):
+        manufacturer = part.manufacturer_name or ""
+        alias = part.alias_used or ""
+        combined = " / ".join(filter(None, [manufacturer, alias])) or "—"
+        rows.append({"№": idx, "Article": part.part_number, "Manufacturer/Alias": combined})
+    return rows
+
+
 async def export_parts_to_excel(session: AsyncSession) -> Path:
     stmt = select(Part)
     result = await session.execute(stmt)
     parts = result.scalars().all()
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
-    df = pd.DataFrame(
-        [
-            {
-                "part_number": part.part_number,
-                "manufacturer_name": part.manufacturer_name,
-                "alias_used": part.alias_used,
-                "confidence": part.confidence,
-                "source_url": part.source_url,
-            }
-            for part in parts
-        ]
-    )
+    df = pd.DataFrame(_build_table_rows(parts))
     export_path = settings.storage_dir / "export.xlsx"
     df.to_excel(export_path, index=False)
     return export_path
@@ -41,20 +40,31 @@ async def export_parts_to_pdf(session: AsyncSession) -> Path:
     parts = result.scalars().all()
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
 
+    rows = _build_table_rows(parts)
+
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
-    pdf.set_font("Helvetica", size=14)
-    pdf.cell(0, 10, "AliasFinder Export", ln=True)
+    pdf.set_font("Helvetica", style="B", size=14)
+    pdf.cell(0, 10, "Сводная таблица производителей", ln=True, align="C")
+    pdf.ln(2)
+
+    headers = ["№", "Article", "Manufacturer/Alias"]
+    col_widths = [15, 55, 120]
+    pdf.set_font("Helvetica", style="B", size=11)
+    for header, width in zip(headers, col_widths):
+        pdf.cell(width, 10, header, border=1, align="C")
+    pdf.ln()
 
     pdf.set_font("Helvetica", size=10)
-    for part in parts:
-        pdf.cell(0, 6, f"Part: {part.part_number}", ln=True)
-        pdf.cell(0, 6, f"Manufacturer: {part.manufacturer_name or '-'}", ln=True)
-        pdf.cell(0, 6, f"Alias used: {part.alias_used or '-'}", ln=True)
-        pdf.cell(0, 6, f"Confidence: {part.confidence if part.confidence is not None else '-'}", ln=True)
-        pdf.multi_cell(0, 6, f"Source: {part.source_url or '-'}")
-        pdf.ln(4)
+    if not rows:
+        pdf.cell(sum(col_widths), 10, "Данные отсутствуют", border=1, align="C")
+        pdf.ln()
+    else:
+        for row in rows:
+            pdf.cell(col_widths[0], 8, str(row["№"]), border=1, align="C")
+            pdf.cell(col_widths[1], 8, str(row["Article"]), border=1)
+            pdf.cell(col_widths[2], 8, str(row["Manufacturer/Alias"]), border=1, ln=1)
 
     export_path = settings.storage_dir / "export.pdf"
     pdf.output(export_path)

@@ -14,6 +14,36 @@ from app.schemas.part import PartCreate
 from .search_engine import PartSearchEngine
 
 
+def _normalize_column_name(name: str) -> str:
+    return "".join(ch.lower() for ch in name if ch.isalnum())
+
+
+COLUMN_ALIASES: dict[str, set[str]] = {
+    "part_number": {
+        "partnumber",
+        "article",
+        "артикул",
+        "номер",
+        "no",
+        "articul",
+    },
+    "manufacturer_hint": {
+        "manufacturerhint",
+        "manufacturer",
+        "alias",
+        "manufactureralias",
+        "manufacturernalias",
+        "manufactureralias",
+        "manufactureroralias",
+        "manufactureraliashint",
+        "произв",
+        "производитель",
+        "алиас",
+        "производительалиас",
+    },
+}
+
+
 def _normalize(value: object) -> str | None:
     if value is None:
         return None
@@ -31,21 +61,33 @@ async def import_parts_from_excel(
 ) -> tuple[int, int, list[str]]:
     content = await file.read()
     df = pd.read_excel(BytesIO(content))
-    required_columns = {"part_number", "manufacturer_hint"}
-    missing = required_columns - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing columns: {', '.join(missing)}")
+
+    column_mapping: dict[str, str] = {}
+    for column in df.columns:
+        normalized = _normalize_column_name(str(column))
+        for target, aliases in COLUMN_ALIASES.items():
+            if normalized in aliases and target not in column_mapping:
+                column_mapping[target] = column
+
+    if "part_number" not in column_mapping:
+        raise ValueError(
+            "Не удалось найти столбец с артикулами. Убедитесь, что используется колонка 'Article' или 'part_number'."
+        )
 
     imported = 0
     skipped = 0
     errors: list[str] = []
     engine = PartSearchEngine(session)
     for _, row in df.iterrows():
-        part_number = _normalize(row["part_number"])
+        part_number = _normalize(row[column_mapping["part_number"]])
         if not part_number:
             skipped += 1
             continue
-        item = PartCreate(part_number=part_number, manufacturer_hint=_normalize(row.get("manufacturer_hint")))
+        manufacturer_hint_column = column_mapping.get("manufacturer_hint")
+        manufacturer_hint = (
+            _normalize(row[manufacturer_hint_column]) if manufacturer_hint_column else None
+        )
+        item = PartCreate(part_number=part_number, manufacturer_hint=manufacturer_hint)
         stmt = select(Part).where(Part.part_number == item.part_number)
         result = await session.execute(stmt)
         if result.scalar_one_or_none():

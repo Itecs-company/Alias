@@ -19,6 +19,12 @@ import {
   StepLabel,
   Stepper,
   Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   TextField,
   Toolbar,
   Tooltip,
@@ -121,6 +127,17 @@ export function App() {
   const [items, setItems] = useState<PartRequestItem[]>([{ ...emptyItem }])
   const [results, setResults] = useState<SearchResult[]>([])
   const [history, setHistory] = useState<PartRead[]>([])
+  const tableData = useMemo(() => {
+    const sorted = [...history].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    )
+    return sorted.map((record, index) => ({
+      order: index + 1,
+      article: record.part_number,
+      manufacturerAlias:
+        [record.manufacturer_name, record.alias_used].filter(Boolean).join(' / ') || '—'
+    }))
+  }, [history])
   const [snackbar, setSnackbar] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [stageProgress, setStageProgress] = useState<StageProgressEntry[]>(() =>
@@ -733,7 +750,8 @@ export function App() {
                       Загрузка из Excel
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Шаблон: столбцы `part_number`, `manufacturer_hint`. Максимальная автоматизация импорта.
+                      Шаблон таблицы: столбцы «№», «Article», «Manufacturer/Alias». Эти же поля используются при
+                      выгрузке.
                     </Typography>
                     <Button component="label" startIcon={<Upload />} variant="contained">
                       Выбрать файл
@@ -881,7 +899,7 @@ export function App() {
                           <Typography>Алиас: {result.alias_used ?? '—'}</Typography>
                           {result.source_url && (
                             <Typography>
-                              Источник:{' '}
+                              Источник{' '}
                               <Box component="a" href={result.source_url} target="_blank" rel="noreferrer" sx={{ color: 'secondary.main' }}>
                                 {result.source_url}
                               </Box>
@@ -912,6 +930,51 @@ export function App() {
                     </Grid>
                   ))}
                 </Grid>
+              )}
+            </Stack>
+          </Paper>
+
+          <Paper
+            elevation={10}
+            sx={{
+              p: { xs: 3, md: 4 },
+              borderRadius: 4,
+              border: '1px solid',
+              borderColor: 'divider'
+            }}
+          >
+            <Stack spacing={3}>
+              <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
+                <Typography variant="h4" sx={{ fontWeight: 600 }}>
+                  Таблица производителей
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Каждое найденное соответствие мгновенно попадает в таблицу и базу данных.
+                </Typography>
+              </Box>
+              {tableData.length === 0 ? (
+                <Typography color="text.secondary">Пока нет данных. Выполните поиск или импорт.</Typography>
+              ) : (
+                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 420, borderRadius: 3 }}>
+                  <Table stickyHeader size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 600, width: 80 }}>№</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer/Alias</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {tableData.map((row) => (
+                        <TableRow key={`${row.order}-${row.article}`} hover>
+                          <TableCell width={80}>{row.order}</TableCell>
+                          <TableCell>{row.article}</TableCell>
+                          <TableCell>{row.manufacturerAlias}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </Stack>
           </Paper>
