@@ -28,7 +28,7 @@ from app.services.importer import import_parts_from_excel
 from app.services.search_engine import PartSearchEngine
 from app.core.security import create_access_token, get_password_hash, verify_password
 
-from .deps import get_current_user, get_db, require_admin
+from .deps import get_current_user, get_db, get_user_from_header_or_query, require_admin
 
 settings = get_settings()
 
@@ -130,8 +130,11 @@ async def export_pdf(session: AsyncSession = Depends(get_db)) -> ExportResponse:
     return ExportResponse(url=f"/api/download/{path.name}")
 
 
-@protected_router.get("/download/{filename}")
-async def download_file(filename: str) -> FileResponse:
+@router.get("/download/{filename}")
+async def download_file(
+    filename: str,
+    _: AuthenticatedUser = Depends(get_user_from_header_or_query),
+) -> FileResponse:
     path = settings.storage_dir / filename
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")

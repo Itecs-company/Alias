@@ -18,13 +18,7 @@ async def get_db() -> AsyncSession:
         yield session
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
-    session: AsyncSession = Depends(get_db),
-) -> AuthenticatedUser:
-    if credentials is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    token = credentials.credentials
+async def _resolve_user_from_token(token: str, session: AsyncSession) -> AuthenticatedUser:
     try:
         payload = decode_access_token(token)
     except JWTError as exc:  # pragma: no cover - runtime guard
@@ -42,6 +36,27 @@ async def get_current_user(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     return AuthenticatedUser(username=username, role=role)
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
+    session: AsyncSession = Depends(get_db),
+) -> AuthenticatedUser:
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    token = credentials.credentials
+    return await _resolve_user_from_token(token, session)
+
+
+async def get_user_from_header_or_query(
+    token: str | None = None,
+    credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
+    session: AsyncSession = Depends(get_db),
+) -> AuthenticatedUser:
+    provided_token = credentials.credentials if credentials else token
+    if not provided_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    return await _resolve_user_from_token(provided_token, session)
 
 
 async def require_admin(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:

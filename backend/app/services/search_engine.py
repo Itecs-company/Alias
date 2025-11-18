@@ -426,16 +426,21 @@ class PartSearchEngine:
         if final_candidate.alias_used:
             await self.resolver.sync_aliases(manufacturer, [final_candidate.alias_used])
         manufacturer_name = manufacturer.name
-        new_part = Part(
-            part_number=part.part_number,
-            manufacturer=manufacturer,
-            manufacturer_name=manufacturer_name,
-            alias_used=final_candidate.alias_used,
-            confidence=final_candidate.confidence,
-            source_url=final_candidate.source_url,
-            debug_log=final_candidate.debug_log if debug else None,
-        )
-        self.session.add(new_part)
+
+        stmt = select(Part).where(Part.part_number == part.part_number).order_by(Part.id.desc())
+        existing_part = (await self.session.execute(stmt)).scalars().first()
+        if existing_part:
+            target = existing_part
+            target.manufacturer = manufacturer
+        else:
+            target = Part(part_number=part.part_number, manufacturer=manufacturer)
+            self.session.add(target)
+
+        target.manufacturer_name = manufacturer_name
+        target.alias_used = final_candidate.alias_used
+        target.confidence = final_candidate.confidence
+        target.source_url = final_candidate.source_url
+        target.debug_log = final_candidate.debug_log if debug else None
         await self.session.flush()
         return SearchResult(
             part_number=part.part_number,

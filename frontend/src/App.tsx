@@ -390,7 +390,10 @@ export function App() {
           response.url.startsWith('//')
             ? response.url
             : `${window.location.origin}${response.url.startsWith('/') ? '' : '/'}${response.url}`
-        window.open(absoluteUrl, '_blank', 'noopener')
+        const tokenizedUrl = auth?.token
+          ? `${absoluteUrl}${absoluteUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(auth.token)}`
+          : absoluteUrl
+        window.open(tokenizedUrl, '_blank', 'noopener')
       }
       setSnackbar(type === 'pdf' ? 'PDF сформирован' : 'Excel сформирован')
     } catch (error) {
