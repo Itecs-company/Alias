@@ -56,6 +56,15 @@ class SearchRequest(BaseModel):
     debug: bool = False
 
 
+class StageStatus(BaseModel):
+    name: str = Field(..., description="Имя этапа (Internet, googlesearch, OpenAI)")
+    status: str = Field(..., description="Статус этапа (success, low-confidence, no-results, skipped)")
+    provider: Optional[str] = Field(default=None, description="Задействованные провайдеры поиска")
+    confidence: Optional[float] = Field(default=None, description="Достоверность результата на этапе")
+    urls_considered: int = Field(default=0, description="Количество обработанных ссылок")
+    message: Optional[str] = Field(default=None, description="Дополнительные комментарии")
+
+
 class SearchResult(BaseModel):
     part_number: str
     manufacturer_name: Optional[str]
@@ -63,6 +72,11 @@ class SearchResult(BaseModel):
     confidence: Optional[float]
     source_url: Optional[str]
     debug_log: Optional[str]
+    search_stage: Optional[str] = Field(
+        default=None,
+        description="Какой сервис дал финальный ответ (Internet, googlesearch, OpenAI)",
+    )
+    stage_history: List[StageStatus] = Field(default_factory=list, description="Ход выполнения поиска")
 
 
 class SearchResponse(BaseModel):

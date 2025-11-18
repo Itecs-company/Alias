@@ -3,6 +3,15 @@ export interface PartRequestItem {
   manufacturer_hint?: string | null
 }
 
+export interface StageStatus {
+  name: string
+  status: 'success' | 'low-confidence' | 'no-results' | 'skipped'
+  provider?: string | null
+  confidence?: number | null
+  urls_considered?: number
+  message?: string | null
+}
+
 export interface SearchResult {
   part_number: string
   manufacturer_name?: string | null
@@ -10,6 +19,8 @@ export interface SearchResult {
   confidence?: number | null
   source_url?: string | null
   debug_log?: string | null
+  search_stage?: string | null
+  stage_history?: StageStatus[]
 }
 
 export interface SearchResponse {

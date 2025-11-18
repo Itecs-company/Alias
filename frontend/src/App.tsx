@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppBar,
   Box,
   Button,
+  Chip,
   Container,
   CssBaseline,
   FormControlLabel,
   Grid,
   IconButton,
+  LinearProgress,
   Paper,
   Snackbar,
   Stack,
@@ -29,9 +31,55 @@ import {
   searchParts,
   uploadExcel
 } from './api'
-import { PartRead, PartRequestItem, SearchResult } from './types'
+import { PartRead, PartRequestItem, SearchResult, StageStatus } from './types'
 
 const emptyItem: PartRequestItem = { part_number: '', manufacturer_hint: '' }
+
+const STAGE_SEQUENCE = ['Internet', 'googlesearch', 'OpenAI'] as const
+type StageName = (typeof STAGE_SEQUENCE)[number]
+type StageState = 'idle' | 'pending' | 'active' | 'done' | 'warning' | 'error' | 'skipped'
+
+const stageLabels: Record<StageName, string> = {
+  Internet: 'Internet · общий поиск',
+  googlesearch: 'GoogleSearch · Google CSE',
+  OpenAI: 'OpenAI · ChatGPT'
+}
+
+const stageStatusDescription: Record<StageStatus['status'], string> = {
+  success: 'успешно',
+  'low-confidence': 'низкая уверенность',
+  'no-results': 'нет результатов',
+  skipped: 'пропущено'
+}
+
+const stageStatusChipColor: Record<StageStatus['status'], 'default' | 'success' | 'warning' | 'error'> = {
+  success: 'success',
+  'low-confidence': 'warning',
+  'no-results': 'error',
+  skipped: 'default'
+}
+
+const progressStateLabel: Record<StageState, string> = {
+  idle: 'ожидание',
+  pending: 'ожидание',
+  active: 'выполняется',
+  done: 'готово',
+  warning: 'низкая уверенность',
+  error: 'нет результата',
+  skipped: 'пропущено'
+}
+
+const progressStateColor: Record<StageState, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
+  idle: 'default',
+  pending: 'default',
+  active: 'info',
+  done: 'success',
+  warning: 'warning',
+  error: 'error',
+  skipped: 'default'
+}
+
+type StageProgressEntry = { name: StageName; state: StageState; message?: string | null }
 
 export function App() {
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>('light')
@@ -41,12 +89,94 @@ export function App() {
   const [history, setHistory] = useState<PartRead[]>([])
   const [snackbar, setSnackbar] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [stageProgress, setStageProgress] = useState<StageProgressEntry[]>(() =>
+    STAGE_SEQUENCE.map((name) => ({ name, state: 'idle' }))
+  )
+  const [currentService, setCurrentService] = useState('—')
+  const progressTimerRef = useRef<number | null>(null)
+  const progressIndexRef = useRef(0)
 
   const theme = useMemo(() => buildTheme(themeMode), [themeMode])
 
   useEffect(() => {
     listParts().then(setHistory).catch(() => setSnackbar('Не удалось получить историю поиска'))
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (progressTimerRef.current) {
+        window.clearInterval(progressTimerRef.current)
+      }
+    }
+  }, [])
+
+  const resetProgress = () => {
+    setStageProgress(STAGE_SEQUENCE.map((name) => ({ name, state: 'idle' })))
+    setCurrentService('—')
+  }
+
+  const startProgress = () => {
+    if (progressTimerRef.current) {
+      window.clearInterval(progressTimerRef.current)
+    }
+    progressIndexRef.current = 0
+    setStageProgress(
+      STAGE_SEQUENCE.map((name, index) => ({ name, state: index === 0 ? 'active' : 'pending' }))
+    )
+    setCurrentService(stageLabels[STAGE_SEQUENCE[0]])
+    progressTimerRef.current = window.setInterval(() => {
+      progressIndexRef.current = Math.min(progressIndexRef.current + 1, STAGE_SEQUENCE.length - 1)
+      setStageProgress((prev) =>
+        prev.map((entry, idx) => {
+          if (idx < progressIndexRef.current) return { ...entry, state: 'done' as StageState }
+          if (idx === progressIndexRef.current) return { ...entry, state: 'active' as StageState }
+          return { ...entry, state: 'pending' as StageState }
+        })
+      )
+      setCurrentService(stageLabels[STAGE_SEQUENCE[progressIndexRef.current]])
+      if (progressIndexRef.current === STAGE_SEQUENCE.length - 1 && progressTimerRef.current) {
+        window.clearInterval(progressTimerRef.current)
+        progressTimerRef.current = null
+      }
+    }, 2200)
+  }
+
+  const finishProgress = (history?: StageStatus[]) => {
+    if (progressTimerRef.current) {
+      window.clearInterval(progressTimerRef.current)
+      progressTimerRef.current = null
+    }
+    if (!history || history.length === 0) {
+      resetProgress()
+      return
+    }
+    setStageProgress(
+      STAGE_SEQUENCE.map((name) => {
+        const stage = history.find((item) => item.name === name)
+        if (!stage) {
+          return { name, state: 'pending' as StageState }
+        }
+        const mappedState: StageState =
+          stage.status === 'success'
+            ? 'done'
+            : stage.status === 'low-confidence'
+            ? 'warning'
+            : stage.status === 'no-results'
+            ? 'error'
+            : 'skipped'
+        return { name, state: mappedState, message: stage.message ?? null }
+      })
+    )
+    const finalStage =
+      [...history].reverse().find((stage) => stage.status === 'success') ||
+      history.find((stage) => stage.status === 'low-confidence')
+    if (finalStage) {
+      const mappedName = finalStage.name as StageName
+      setCurrentService(stageLabels[mappedName] ?? finalStage.name)
+    } else {
+      setCurrentService('—')
+    }
+  }
 
   const handleItemChange = (index: number, key: keyof PartRequestItem, value: string) => {
     setItems((prev) => {
@@ -62,14 +192,18 @@ export function App() {
     setItems((prev) => (prev.length === 1 ? prev : prev.filter((_, idx) => idx !== index)))
 
   const submitSearch = async () => {
+    const filled = items.filter((item) => item.part_number.trim().length)
+    if (!filled.length) {
+      setSnackbar('Добавьте хотя бы один артикул для поиска')
+      finishProgress()
+      return
+    }
     setLoading(true)
+    startProgress()
+    let latestStageHistory: StageStatus[] | undefined
     try {
-      const filled = items.filter((item) => item.part_number.trim().length)
-      if (!filled.length) {
-        setSnackbar('Добавьте хотя бы один артикул для поиска')
-        return
-      }
       const response = await searchParts(filled, debugMode)
+      latestStageHistory = response.results[0]?.stage_history
       setResults(response.results)
       setHistory(await listParts())
       if (!response.results.length) {
@@ -79,6 +213,7 @@ export function App() {
       setSnackbar('Ошибка при выполнении поиска')
     } finally {
       setLoading(false)
+      finishProgress(latestStageHistory)
     }
   }
 
@@ -186,6 +321,27 @@ export function App() {
                     control={<Switch checked={debugMode} onChange={() => setDebugMode((prev) => !prev)} />}
                     label="Включить режим отладки"
                   />
+                  <Paper variant="outlined" sx={{ p: 2 }}>
+                    <Stack spacing={1}>
+                      <Typography variant="subtitle1">Прогресс поиска</Typography>
+                      {loading && <LinearProgress color="secondary" />}
+                      <Typography variant="body2" color="text.secondary">
+                        Текущий сервис: {currentService}
+                      </Typography>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap">
+                        {stageProgress.map((stage) => (
+                          <Chip
+                            key={stage.name}
+                            label={`${stageLabels[stage.name]} · ${progressStateLabel[stage.state]}`}
+                            color={progressStateColor[stage.state]}
+                            variant={stage.state === 'active' ? 'filled' : 'outlined'}
+                            title={stage.message ?? undefined}
+                            sx={{ minWidth: { sm: 200 }, textAlign: 'left' }}
+                          />
+                        ))}
+                      </Stack>
+                    </Stack>
+                  </Paper>
                 </Stack>
               </Paper>
             </Grid>
@@ -237,10 +393,28 @@ export function App() {
                         <Typography>
                           Достоверность: {result.confidence ? `${(result.confidence * 100).toFixed(1)}%` : '—'}
                         </Typography>
+                        {result.search_stage && (
+                          <Typography variant="body2" color="text.secondary">
+                            Финальный сервис: {stageLabels[result.search_stage as StageName] ?? result.search_stage}
+                          </Typography>
+                        )}
                         {result.source_url && (
                           <Typography>
                             Источник: <a href={result.source_url} target="_blank" rel="noreferrer">{result.source_url}</a>
                           </Typography>
+                        )}
+                        {result.stage_history && result.stage_history.length > 0 && (
+                          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" mt={1}>
+                            {result.stage_history.map((stage) => (
+                              <Chip
+                                key={`${result.part_number}-${stage.name}`}
+                                size="small"
+                                label={`${stage.name}: ${stageStatusDescription[stage.status]}`}
+                                color={stageStatusChipColor[stage.status]}
+                                title={stage.message ?? undefined}
+                              />
+                            ))}
+                          </Stack>
                         )}
                         {debugMode && result.debug_log && (
                           <Paper variant="outlined" sx={{ p: 2, mt: 1 }}>
