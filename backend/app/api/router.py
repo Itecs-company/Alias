@@ -64,13 +64,13 @@ async def upload_excel(
 @router.get("/export/excel", response_model=ExportResponse)
 async def export_excel(session: AsyncSession = Depends(get_db)) -> ExportResponse:
     path = await export_parts_to_excel(session)
-    return ExportResponse(url=f"/download/{path.name}")
+    return ExportResponse(url=f"/api/download/{path.name}")
 
 
 @router.get("/export/pdf", response_model=ExportResponse)
 async def export_pdf(session: AsyncSession = Depends(get_db)) -> ExportResponse:
     path = await export_parts_to_pdf(session)
-    return ExportResponse(url=f"/download/{path.name}")
+    return ExportResponse(url=f"/api/download/{path.name}")
 
 
 @router.get("/download/{filename}")

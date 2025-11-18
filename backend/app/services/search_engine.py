@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import List
+from urllib.parse import urlparse
 
 from loguru import logger
 from rapidfuzz import fuzz, process
@@ -17,6 +19,57 @@ from .search_providers import (
     get_default_providers,
     get_fallback_provider,
     get_google_provider,
+)
+
+
+DOMAIN_MANUFACTURER_HINTS: dict[str, str] = {
+    "ti.com": "Texas Instruments",
+    "texasinstruments.com": "Texas Instruments",
+    "analog.com": "Analog Devices",
+    "adi.com": "Analog Devices",
+    "st.com": "STMicroelectronics",
+    "microchip.com": "Microchip Technology",
+    "onsemi.com": "onsemi",
+    "nxp.com": "NXP Semiconductors",
+    "infineon.com": "Infineon Technologies",
+    "renesas.com": "Renesas Electronics",
+    "vishay.com": "Vishay Intertechnology",
+    "maximintegrated.com": "Maxim Integrated",
+    "diodes.com": "Diodes Incorporated",
+    "broadcom.com": "Broadcom",
+    "fairchildsemi.com": "Fairchild Semiconductor",
+    "rohm.com": "ROHM Semiconductor",
+    "semiconductor.samsung.com": "Samsung Semiconductor",
+    "semtech.com": "Semtech",
+}
+
+KNOWN_MANUFACTURERS: list[str] = [
+    "Texas Instruments",
+    "Analog Devices",
+    "STMicroelectronics",
+    "Microchip Technology",
+    "NXP Semiconductors",
+    "Infineon Technologies",
+    "onsemi",
+    "ON Semiconductor",
+    "Renesas Electronics",
+    "Vishay Intertechnology",
+    "Maxim Integrated",
+    "Diodes Incorporated",
+    "Broadcom",
+    "ROHM Semiconductor",
+    "Semtech",
+    "Samsung Semiconductor",
+]
+
+KEYWORD_HINTS = (
+    "datasheet",
+    "manufacturer",
+    "semiconductor",
+    "devices",
+    "instruments",
+    "technology",
+    "microelectronics",
 )
 
 
@@ -111,7 +164,7 @@ class PartSearchEngine:
         contents = await extract_from_urls(urls[:6])
         candidates: list[Candidate] = []
         for url, text in contents.items():
-            candidate = self._guess_manufacturer_from_text(text, part)
+            candidate = self._guess_manufacturer_from_text(text, part, url)
             if candidate:
                 manufacturer, alias, confidence, debug = candidate
                 candidates.append(
@@ -135,41 +188,109 @@ class PartSearchEngine:
         best = max(candidates, key=lambda c: c.confidence) if candidates else None
         return StageEvaluation(stage_name, [provider.name for provider in providers], len(urls), best)
 
-    def _guess_manufacturer_from_text(self, text: str, part: PartBase) -> tuple[str, str | None, float, str] | None:
+    def _guess_manufacturer_from_text(
+        self, text: str, part: PartBase, url: str
+    ) -> tuple[str, str | None, float, str] | None:
+        domain_manufacturer = self._manufacturer_from_domain(url)
+        if domain_manufacturer:
+            alias = self._alias_if_similar(part, domain_manufacturer)
+            host = urlparse(url).hostname or url
+            return (
+                domain_manufacturer,
+                alias,
+                0.96,
+                f"Производитель определён по домену {host}",
+            )
+
+        known_manufacturer = self._manufacturer_from_known_text(text)
+        if known_manufacturer:
+            alias = self._alias_if_similar(part, known_manufacturer)
+            return (
+                known_manufacturer,
+                alias,
+                0.9,
+                "В тексте даташита найдено упоминание производителя",
+            )
+
         lines = text.splitlines()
         candidates = [line for line in lines if part.part_number.lower() in line.lower()]
         if not candidates and part.manufacturer_hint:
             candidates = [line for line in lines if part.manufacturer_hint.lower() in line.lower()]
         if not candidates:
+            keyword_lines = [
+                line
+                for line in lines
+                if any(keyword in line.lower() for keyword in KEYWORD_HINTS)
+            ]
+            if keyword_lines:
+                candidates = keyword_lines[:20]
+        if not candidates:
             candidates = lines[:20]
+
         manufacturer_names: list[str] = []
         for line in candidates:
-            tokens = [token.strip(" ,.;:()[]") for token in line.split() if token.isalpha()]
+            tokens = [
+                token.strip(" ,.;:()[]")
+                for token in line.split()
+                if token.isalpha() and len(token) > 2
+            ]
             if tokens:
                 manufacturer_names.append(" ".join(tokens[:3]))
         if not manufacturer_names:
             return None
-        alias = None
+
         if part.manufacturer_hint:
             match = process.extractOne(
                 part.manufacturer_hint,
                 manufacturer_names,
                 scorer=fuzz.WRatio,
             )
-            if match:
-                alias = part.manufacturer_hint
+            if match and match[1] >= 67:
                 confidence = match[1] / 100
                 manufacturer = match[0]
-                debug = f"Matched alias '{alias}' with score {confidence:.2f}"
-                return manufacturer, alias, confidence, debug
+                debug = f"Совпадение с подсказкой оператора ({confidence:.2f})"
+                return manufacturer, part.manufacturer_hint, confidence, debug
+
         top = process.extractOne(part.part_number, manufacturer_names, scorer=fuzz.partial_ratio)
         if top:
             manufacturer = top[0]
             confidence = top[1] / 100
-            debug = f"Heuristic manufacturer from datasheet context score {confidence:.2f}"
+            alias = self._alias_if_similar(part, manufacturer)
+            debug = f"Эвристика по контексту даташита ({confidence:.2f})"
             return manufacturer, alias, confidence, debug
+
         manufacturer = manufacturer_names[0]
-        return manufacturer, alias, 0.3, "Fallback manufacturer selection"
+        alias = self._alias_if_similar(part, manufacturer)
+        return manufacturer, alias, 0.35, "Резервное определение производителя"
+
+    def _manufacturer_from_domain(self, url: str) -> str | None:
+        try:
+            hostname = urlparse(url).hostname
+        except ValueError:
+            return None
+        if not hostname:
+            return None
+        hostname = hostname.lower()
+        for domain, manufacturer in DOMAIN_MANUFACTURER_HINTS.items():
+            if hostname == domain or hostname.endswith(f".{domain}"):
+                return manufacturer
+        return None
+
+    def _manufacturer_from_known_text(self, text: str) -> str | None:
+        lowered = text.lower()
+        matches = [name for name in KNOWN_MANUFACTURERS if name.lower() in lowered]
+        if not matches:
+            return None
+        counts = Counter(matches)
+        return counts.most_common(1)[0][0]
+
+    def _alias_if_similar(self, part: PartBase, manufacturer: str) -> str | None:
+        if not part.manufacturer_hint:
+            return None
+        score = fuzz.WRatio(part.manufacturer_hint, manufacturer)
+        if score >= 60:
+            return part.manufacturer_hint
+        return None
 
     async def search_part(self, part: PartBase, *, debug: bool = False) -> SearchResult:
         stage_history: list[StageStatus] = []

@@ -17,6 +17,7 @@ async def export_parts_to_excel(session: AsyncSession) -> Path:
     stmt = select(Part)
     result = await session.execute(stmt)
     parts = result.scalars().all()
+    settings.storage_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(
         [
             {
@@ -38,6 +39,7 @@ async def export_parts_to_pdf(session: AsyncSession) -> Path:
     stmt = select(Part)
     result = await session.execute(stmt)
     parts = result.scalars().all()
+    settings.storage_dir.mkdir(parents=True, exist_ok=True)
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
