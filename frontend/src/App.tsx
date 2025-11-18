@@ -112,7 +112,7 @@ export function App() {
     const raw = window.localStorage.getItem(AUTH_STORAGE_KEY)
     return raw ? (JSON.parse(raw) as AuthState) : null
   })
-  const [loginForm, setLoginForm] = useState({ username: 'admin', password: 'admin' })
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' })
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
   const [credentialsForm, setCredentialsForm] = useState({ username: '', password: '' })
@@ -434,7 +434,7 @@ export function App() {
                     Авторизация AliasFinder
                   </Typography>
                   <Typography color="text.secondary" textAlign="center">
-                    Используйте учётную запись оператора (admin/admin) или войдите как администратор, чтобы изменить логин и пароль пользователей.
+                    Введите действующие учётные данные. Расширенные операции и смена логина/пароля доступны только администратору.
                   </Typography>
                 </Stack>
                 <TextField
@@ -460,14 +460,6 @@ export function App() {
                 <Button type="submit" variant="contained" size="large" disabled={loginLoading}>
                   {loginLoading ? 'Вход…' : 'Войти'}
                 </Button>
-                <Stack spacing={0.5}>
-                  <Typography variant="body2" color="text.secondary">
-                    Обычный доступ: <strong>admin / admin</strong>
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Администратор (смена логина и пароля): <strong>admin / Admin2025</strong>
-                  </Typography>
-                </Stack>
               </Stack>
             </Paper>
             <Box mt={3} textAlign="center">

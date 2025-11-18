@@ -8,7 +8,17 @@ from passlib.context import CryptContext
 
 from app.core.config import get_settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    # Newer versions of ``bcrypt`` raise a ``ValueError`` when the input
+    # password exceeds 72 bytes.  Passlib expects silent truncation while it
+    # probes the backend during startup (see ``detect_wrap_bug``).  By enabling
+    # ``bcrypt__truncate_error`` we ask passlib to transparently truncate long
+    # secrets instead of surfacing an exception which prevented the API from
+    # booting in Docker.
+    bcrypt__truncate_error=True,
+)
 settings = get_settings()
 
 
