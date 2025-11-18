@@ -42,3 +42,20 @@ export interface PartRead extends SearchResult {
 export interface ExportResponse {
   url: string
 }
+
+export interface LoginResponse {
+  access_token: string
+  token_type: string
+  username: string
+  role: 'admin' | 'user'
+}
+
+export interface CredentialsUpdatePayload {
+  username: string
+  password: string
+}
+
+export interface AuthenticatedUser {
+  username: string
+  role: 'admin' | 'user'
+}

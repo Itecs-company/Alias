@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     proxy_password: str | None = None
     allowed_origins: List[str] = Field(default_factory=lambda: ["*"])
     storage_dir: Path = Field(default=Path("storage"))
+    auth_secret_key: str = Field(default="change-me")
+    auth_algorithm: str = Field(default="HS256")
+    auth_access_token_expire_minutes: int = Field(default=90)
+    default_user_username: str = Field(default="admin")
+    default_user_password: str = Field(default="admin")
+    admin_username: str = Field(default="admin")
+    admin_password: str = Field(default="Admin2025")
 
     class Config:
         env_file = ".env"

@@ -1,5 +1,14 @@
 import axios from 'axios'
-import { ExportResponse, PartRead, SearchResponse, UploadResponse, PartRequestItem } from './types'
+import {
+  ExportResponse,
+  PartRead,
+  SearchResponse,
+  UploadResponse,
+  PartRequestItem,
+  LoginResponse,
+  CredentialsUpdatePayload,
+  AuthenticatedUser
+} from './types'
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
 const isLocalhost = (url: string) => /https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(url)
@@ -25,6 +34,45 @@ const resolvedBase = (() => {
 const client = axios.create({
   baseURL: resolvedBase
 })
+
+let unauthorizedHandler: (() => void) | null = null
+
+client.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401 && unauthorizedHandler) {
+      unauthorizedHandler()
+    }
+    return Promise.reject(error)
+  }
+)
+
+export const setAuthToken = (token: string | null) => {
+  if (token) {
+    client.defaults.headers.common.Authorization = `Bearer ${token}`
+  } else {
+    delete client.defaults.headers.common.Authorization
+  }
+}
+
+export const setUnauthorizedHandler = (handler: (() => void) | null) => {
+  unauthorizedHandler = handler
+}
+
+export const login = async (username: string, password: string) => {
+  const response = await client.post<LoginResponse>('/auth/login', { username, password })
+  return response.data
+}
+
+export const fetchProfile = async () => {
+  const response = await client.get<AuthenticatedUser>('/auth/me')
+  return response.data
+}
+
+export const updateCredentials = async (payload: CredentialsUpdatePayload) => {
+  const response = await client.post<{ username: string; message: string }>('/auth/credentials', payload)
+  return response.data
+}
 
 export const searchParts = async (items: PartRequestItem[], debug: boolean) => {
   const response = await client.post<SearchResponse>('/search', { items, debug })

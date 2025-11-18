@@ -33,7 +33,9 @@ import {
   Upload,
   AddCircleOutline,
   Search,
-  Bolt
+  Bolt,
+  Lock,
+  Logout
 } from '@mui/icons-material'
 
 import { buildTheme } from './theme'
@@ -43,7 +45,12 @@ import {
   exportPdf,
   listParts,
   searchParts,
-  uploadExcel
+  uploadExcel,
+  login as loginRequest,
+  updateCredentials as updateCredentialsRequest,
+  setAuthToken,
+  setUnauthorizedHandler,
+  fetchProfile
 } from './api'
 import { PartRead, PartRequestItem, SearchResult, StageStatus } from './types'
 
@@ -95,8 +102,21 @@ const progressStateColor: Record<StageState, 'default' | 'success' | 'warning' |
 
 type StageProgressEntry = { name: StageName; state: StageState; message?: string | null }
 
+type AuthState = { token: string; username: string; role: 'admin' | 'user' }
+const AUTH_STORAGE_KEY = 'aliasfinder:auth'
+
 export function App() {
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>('light')
+  const [auth, setAuth] = useState<AuthState | null>(() => {
+    if (typeof window === 'undefined') return null
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY)
+    return raw ? (JSON.parse(raw) as AuthState) : null
+  })
+  const [loginForm, setLoginForm] = useState({ username: 'admin', password: 'admin' })
+  const [loginLoading, setLoginLoading] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
+  const [credentialsForm, setCredentialsForm] = useState({ username: '', password: '' })
+  const [credentialsLoading, setCredentialsLoading] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
   const [items, setItems] = useState<PartRequestItem[]>([{ ...emptyItem }])
   const [results, setResults] = useState<SearchResult[]>([])
@@ -109,8 +129,17 @@ export function App() {
   const [currentService, setCurrentService] = useState('—')
   const progressTimerRef = useRef<number | null>(null)
   const progressIndexRef = useRef(0)
+  const refreshHistory = async () => {
+    try {
+      const data = await listParts()
+      setHistory(data)
+    } catch (error) {
+      setSnackbar('Не удалось получить историю поиска')
+    }
+  }
 
   const theme = useMemo(() => buildTheme(themeMode), [themeMode])
+  const isAdmin = auth?.role === 'admin'
   const gradientBackground = useMemo(
     () =>
       themeMode === 'light'
@@ -126,19 +155,6 @@ export function App() {
     const doneCount = stageProgress.filter((entry) => entry.state === 'done').length
     return doneCount ? doneCount - 1 : 0
   }, [stageProgress])
-
-  useEffect(() => {
-    listParts().then(setHistory).catch(() => setSnackbar('Не удалось получить историю поиска'))
-  }, [])
-
-
-  useEffect(() => {
-    return () => {
-      if (progressTimerRef.current) {
-        window.clearInterval(progressTimerRef.current)
-      }
-    }
-  }, [])
 
   const resetProgress = () => {
     setStageProgress(STAGE_SEQUENCE.map((name) => ({ name, state: 'idle' })))
@@ -208,6 +224,93 @@ export function App() {
     }
   }
 
+  const handleLogout = (message?: string) => {
+    setAuth(null)
+    setResults([])
+    setHistory([])
+    setItems([{ ...emptyItem }])
+    resetProgress()
+    setLoading(false)
+    setCredentialsForm({ username: '', password: '' })
+    if (message) {
+      setSnackbar(message)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (progressTimerRef.current) {
+        window.clearInterval(progressTimerRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => handleLogout('Сессия истекла. Авторизуйтесь снова.'))
+    return () => setUnauthorizedHandler(null)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (auth) {
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(auth))
+    } else {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY)
+    }
+  }, [auth])
+
+  useEffect(() => {
+    if (!auth) {
+      setAuthToken(null)
+      return
+    }
+    setAuthToken(auth.token)
+    const verify = async () => {
+      try {
+        await fetchProfile()
+        await refreshHistory()
+      } catch (error) {
+        handleLogout('Сессия истекла. Авторизуйтесь снова.')
+      }
+    }
+    verify()
+  }, [auth])
+
+  const handleLoginSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setLoginLoading(true)
+    setLoginError(null)
+    try {
+      const response = await loginRequest(loginForm.username.trim(), loginForm.password)
+      setAuth({ token: response.access_token, username: response.username, role: response.role })
+      setSnackbar(`Добро пожаловать, ${response.username}`)
+    } catch (error) {
+      setLoginError('Неверный логин или пароль')
+    } finally {
+      setLoginLoading(false)
+    }
+  }
+
+  const handleCredentialsUpdate = async () => {
+    if (!credentialsForm.username.trim() || !credentialsForm.password.trim()) {
+      setSnackbar('Укажите новый логин и пароль')
+      return
+    }
+    setCredentialsLoading(true)
+    try {
+      const response = await updateCredentialsRequest({
+        username: credentialsForm.username.trim(),
+        password: credentialsForm.password.trim()
+      })
+      setSnackbar(`Учетные данные обновлены для ${response.username}`)
+      setCredentialsForm({ username: '', password: '' })
+    } catch (error) {
+      setSnackbar('Не удалось обновить учетные данные')
+    } finally {
+      setCredentialsLoading(false)
+    }
+  }
+
   const handleItemChange = (index: number, key: keyof PartRequestItem, value: string) => {
     setItems((prev) => {
       const next = [...prev]
@@ -235,7 +338,7 @@ export function App() {
       const response = await searchParts(filled, debugMode)
       latestStageHistory = response.results[0]?.stage_history
       setResults(response.results)
-      setHistory(await listParts())
+      await refreshHistory()
       if (!response.results.length) {
         setSnackbar('Производители не найдены')
       }
@@ -256,7 +359,7 @@ export function App() {
     try {
       const created = await createPart(first)
       setSnackbar(`Добавлено: ${created.part_number}`)
-      setHistory(await listParts())
+      await refreshHistory()
     } catch (error) {
       setSnackbar('Не удалось добавить запись вручную')
     }
@@ -271,7 +374,7 @@ export function App() {
       if (response.errors.length) {
         setSnackbar(`Ошибки: ${response.errors.join(', ')}`)
       }
-      setHistory(await listParts())
+      await refreshHistory()
     } catch (error) {
       setSnackbar('Не удалось загрузить файл')
     }
@@ -294,10 +397,99 @@ export function App() {
       setSnackbar('Не удалось выгрузить данные')
     }
   }
+  if (!auth) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Box
+          sx={{
+            minHeight: '100vh',
+            backgroundImage: gradientBackground,
+            display: 'flex',
+            alignItems: 'center',
+            py: 8
+          }}
+        >
+          <Container maxWidth="sm">
+            <Paper
+              elevation={12}
+              sx={{
+                p: { xs: 3, md: 5 },
+                borderRadius: 4,
+                border: '1px solid',
+                borderColor: 'divider',
+                backdropFilter: 'blur(14px)',
+                background: (theme) =>
+                  theme.palette.mode === 'light'
+                    ? 'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(240,248,255,0.92))'
+                    : 'linear-gradient(135deg, rgba(10,15,25,0.9), rgba(22,30,45,0.9))'
+              }}
+            >
+              <Stack component="form" spacing={3} onSubmit={handleLoginSubmit}>
+                <Stack spacing={1} alignItems="center">
+                  <Avatar sx={{ bgcolor: 'secondary.main', width: 64, height: 64 }}>
+                    <Lock />
+                  </Avatar>
+                  <Typography variant="h4" sx={{ fontWeight: 600 }} textAlign="center">
+                    Авторизация AliasFinder
+                  </Typography>
+                  <Typography color="text.secondary" textAlign="center">
+                    Используйте учётную запись оператора (admin/admin) или войдите как администратор, чтобы изменить логин и пароль пользователей.
+                  </Typography>
+                </Stack>
+                <TextField
+                  label="Логин"
+                  value={loginForm.username}
+                  onChange={(event) => setLoginForm((prev) => ({ ...prev, username: event.target.value }))}
+                  fullWidth
+                  required
+                />
+                <TextField
+                  label="Пароль"
+                  type="password"
+                  value={loginForm.password}
+                  onChange={(event) => setLoginForm((prev) => ({ ...prev, password: event.target.value }))}
+                  fullWidth
+                  required
+                />
+                {loginError && (
+                  <Typography color="error" variant="body2">
+                    {loginError}
+                  </Typography>
+                )}
+                <Button type="submit" variant="contained" size="large" disabled={loginLoading}>
+                  {loginLoading ? 'Вход…' : 'Войти'}
+                </Button>
+                <Stack spacing={0.5}>
+                  <Typography variant="body2" color="text.secondary">
+                    Обычный доступ: <strong>admin / admin</strong>
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Администратор (смена логина и пароля): <strong>admin / Admin2025</strong>
+                  </Typography>
+                </Stack>
+              </Stack>
+            </Paper>
+            <Box mt={3} textAlign="center">
+              <Button variant="text" onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'light')}>
+                {themeMode === 'light' ? 'Темная тема' : 'Светлая тема'}
+              </Button>
+            </Box>
+          </Container>
+        </Box>
+        <Snackbar
+          open={Boolean(snackbar)}
+          message={snackbar}
+          autoHideDuration={4000}
+          onClose={() => setSnackbar(null)}
+        />
+      </ThemeProvider>
+    )
+  }
 
-return (
+  return (
 
-  <ThemeProvider theme={theme}>
+    <ThemeProvider theme={theme}>
     <CssBaseline />
     <Box
       sx={{
@@ -331,6 +523,20 @@ return (
               <BugReport />
             </IconButton>
           </Tooltip>
+          <Divider orientation="vertical" flexItem sx={{ mx: 2, display: { xs: 'none', sm: 'block' }, opacity: 0.35 }} />
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Chip
+              label={isAdmin ? 'Администратор' : 'Оператор'}
+              color={isAdmin ? 'secondary' : 'default'}
+              variant={isAdmin ? 'filled' : 'outlined'}
+            />
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              {auth.username}
+            </Typography>
+            <Button color="inherit" size="small" startIcon={<Logout />} onClick={() => handleLogout()}>
+              Выйти
+            </Button>
+          </Stack>
         </Toolbar>
       </AppBar>
 
@@ -567,6 +773,50 @@ return (
                     </Stack>
                   </Stack>
                 </Paper>
+                {isAdmin && (
+                  <Paper
+                    elevation={6}
+                    sx={{
+                      p: { xs: 3, md: 4 },
+                      borderRadius: 4,
+                      border: '1px solid',
+                      borderColor: 'divider'
+                    }}
+                  >
+                    <Stack spacing={2}>
+                      <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                        Управление доступом
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Измените логин и пароль пользовательской учётной записи для операторов сервиса.
+                      </Typography>
+                      <TextField
+                        label="Новый логин"
+                        value={credentialsForm.username}
+                        onChange={(event) => setCredentialsForm((prev) => ({ ...prev, username: event.target.value }))}
+                        fullWidth
+                      />
+                      <TextField
+                        label="Новый пароль"
+                        type="password"
+                        value={credentialsForm.password}
+                        onChange={(event) => setCredentialsForm((prev) => ({ ...prev, password: event.target.value }))}
+                        fullWidth
+                      />
+                      <Stack direction="row" spacing={2}>
+                        <Button variant="contained" onClick={handleCredentialsUpdate} disabled={credentialsLoading}>
+                          {credentialsLoading ? 'Сохранение…' : 'Сохранить'}
+                        </Button>
+                        <Button variant="text" onClick={() => setCredentialsForm({ username: '', password: '' })}>
+                          Очистить
+                        </Button>
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary">
+                        Вход выполнен как администратор: {auth.username}
+                      </Typography>
+                    </Stack>
+                  </Paper>
+                )}
               </Stack>
             </Grid>
           </Grid>
