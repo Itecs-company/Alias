@@ -58,7 +58,7 @@ import {
   setUnauthorizedHandler,
   fetchProfile
 } from './api'
-import { PartRead, PartRequestItem, SearchResult, StageStatus } from './types'
+import { MatchStatus, PartRead, PartRequestItem, SearchResult, StageStatus } from './types'
 
 const emptyItem: PartRequestItem = { part_number: '', manufacturer_hint: '' }
 
@@ -108,6 +108,18 @@ const progressStateColor: Record<StageState, 'default' | 'success' | 'warning' |
 
 type StageProgressEntry = { name: StageName; state: StageState; message?: string | null }
 
+const matchStatusLabels: Record<Exclude<MatchStatus, null>, string> = {
+  matched: 'совпадает',
+  mismatch: 'расхождение',
+  pending: 'ожидает проверки'
+}
+
+const matchStatusColor: Record<Exclude<MatchStatus, null>, 'success' | 'error' | 'warning'> = {
+  matched: 'success',
+  mismatch: 'error',
+  pending: 'warning'
+}
+
 type AuthState = { token: string; username: string; role: 'admin' | 'user' }
 const AUTH_STORAGE_KEY = 'aliasfinder:auth'
 const THEME_STORAGE_KEY = 'aliasfinder:theme'
@@ -139,14 +151,20 @@ export function App() {
     return sorted.map((record) => ({
       key: `${record.id}-${record.part_number}`,
       article: record.part_number,
-      manufacturerAlias:
-        [record.manufacturer_name, record.alias_used].filter(Boolean).join(' / ') || '—'
+      manufacturer: record.manufacturer_name ?? '—',
+      alias: record.alias_used ?? '—',
+      submitted: record.submitted_manufacturer ?? '—',
+      matchStatus: (record.match_status ?? null) as MatchStatus,
+      matchConfidence: record.match_confidence ?? null
     }))
   }, [history])
   const [snackbar, setSnackbar] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [stageProgress, setStageProgress] = useState<StageProgressEntry[]>(() =>
     STAGE_SEQUENCE.map((name) => ({ name, state: 'idle' }))
+  )
+  const [uploadState, setUploadState] = useState<{ status: 'idle' | 'uploading' | 'done' | 'error'; message?: string }>(
+    { status: 'idle' }
   )
   const [currentService, setCurrentService] = useState('—')
   const progressTimerRef = useRef<number | null>(null)
@@ -182,6 +200,22 @@ export function App() {
   const resetProgress = () => {
     setStageProgress(STAGE_SEQUENCE.map((name) => ({ name, state: 'idle' })))
     setCurrentService('—')
+  }
+
+  const renderMatchChip = (status: MatchStatus | undefined, confidence?: number | null) => {
+    if (!status) {
+      return '—'
+    }
+    const normalized = status as Exclude<MatchStatus, null>
+    const suffix = normalized !== 'pending' && confidence ? ` (${(confidence * 100).toFixed(1)}%)` : ''
+    return (
+      <Chip
+        size="small"
+        label={`${matchStatusLabels[normalized]}${suffix}`}
+        color={matchStatusColor[normalized]}
+        variant="outlined"
+      />
+    )
   }
 
   const startProgress = () => {
@@ -401,12 +435,16 @@ export function App() {
       return
     }
     try {
+      setUploadState({ status: 'uploading', message: `Загружаем ${file.name}…` })
       const response = await uploadExcel(file, debugMode)
       const baseMessage = `Импортировано: ${response.imported}, пропущено: ${response.skipped}`
       const errorMessage = response.errors.length ? ` Ошибки: ${response.errors.join(', ')}` : ''
-      setSnackbar(`${baseMessage}${errorMessage}`)
+      const statusMessage = response.status_message ?? `Файл ${file.name} обработан`
+      setUploadState({ status: 'done', message: statusMessage })
+      setSnackbar(`${statusMessage}. ${baseMessage}${errorMessage}`)
       await refreshHistory()
     } catch (error) {
+      setUploadState({ status: 'error', message: 'Не удалось загрузить файл' })
       setSnackbar('Не удалось загрузить файл')
     } finally {
       input.value = ''
@@ -772,6 +810,21 @@ export function App() {
                       Выбрать файл
                       <input hidden type="file" accept=".xls,.xlsx" onChange={handleUpload} />
                     </Button>
+                    {uploadState.status !== 'idle' && (
+                      <Stack spacing={1} sx={{ width: '100%' }}>
+                        {uploadState.status === 'uploading' && <LinearProgress color="secondary" />}
+                        <Chip
+                          label={uploadState.message ?? 'Обработка файла'}
+                          color=
+                            uploadState.status === 'done'
+                              ? 'success'
+                              : uploadState.status === 'uploading'
+                              ? 'info'
+                              : 'error'
+                          variant="outlined"
+                        />
+                      </Stack>
+                    )}
                   </Stack>
                 </Paper>
 
@@ -877,6 +930,8 @@ export function App() {
                         <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Confidence</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Service</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Source</TableCell>
@@ -890,6 +945,13 @@ export function App() {
                             <TableCell>{result.part_number}</TableCell>
                             <TableCell>{result.manufacturer_name ?? '—'}</TableCell>
                             <TableCell>{result.alias_used ?? '—'}</TableCell>
+                            <TableCell>{result.submitted_manufacturer ?? '—'}</TableCell>
+                            <TableCell>
+                              {renderMatchChip(
+                                (result.match_status ?? null) as MatchStatus,
+                                result.match_confidence ?? null
+                              )}
+                            </TableCell>
                             <TableCell>
                               {result.confidence ? `${(result.confidence * 100).toFixed(1)}%` : '—'}
                             </TableCell>
@@ -933,7 +995,7 @@ export function App() {
                           </TableRow>
                           {debugMode && result.debug_log ? (
                             <TableRow>
-                              <TableCell colSpan={7} sx={{ backgroundColor: 'action.hover' }}>
+                              <TableCell colSpan={9} sx={{ backgroundColor: 'action.hover' }}>
                                 <Typography variant="body2" color="text.secondary">
                                   {result.debug_log}
                                 </Typography>
@@ -975,14 +1037,20 @@ export function App() {
                     <TableHead>
                       <TableRow>
                         <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer/Alias</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {tableData.map((row) => (
                         <TableRow key={row.key} hover>
                           <TableCell>{row.article}</TableCell>
-                          <TableCell>{row.manufacturerAlias}</TableCell>
+                          <TableCell>{row.manufacturer}</TableCell>
+                          <TableCell>{row.alias}</TableCell>
+                          <TableCell>{row.submitted}</TableCell>
+                          <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1018,6 +1086,13 @@ export function App() {
                           </Typography>
                           <Typography>Производитель: {record.manufacturer_name ?? '—'}</Typography>
                           <Typography>Алиас: {record.alias_used ?? '—'}</Typography>
+                          <Typography>
+                            Заявленный производитель: {record.submitted_manufacturer ?? '—'}
+                          </Typography>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Typography>Сопоставление:</Typography>
+                            {renderMatchChip(record.match_status as MatchStatus, record.match_confidence ?? null)}
+                          </Stack>
                           <Typography>
                             Достоверность: {record.confidence ? `${(record.confidence * 100).toFixed(1)}%` : '—'}
                           </Typography>

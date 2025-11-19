@@ -114,8 +114,15 @@ async def upload_excel(
     debug: bool = Form(False),
     session: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
-    imported, skipped, errors = await import_parts_from_excel(session, file, debug=debug)
-    return UploadResponse(imported=imported, skipped=skipped, errors=errors)
+    imported, skipped, errors, status_message = await import_parts_from_excel(
+        session, file, debug=debug
+    )
+    return UploadResponse(
+        imported=imported,
+        skipped=skipped,
+        errors=errors,
+        status_message=status_message,
+    )
 
 
 @protected_router.get("/export/excel", response_model=ExportResponse)

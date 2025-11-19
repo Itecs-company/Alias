@@ -3,6 +3,8 @@ export interface PartRequestItem {
   manufacturer_hint?: string | null
 }
 
+export type MatchStatus = 'matched' | 'mismatch' | 'pending' | null
+
 export interface StageStatus {
   name: string
   status: 'success' | 'low-confidence' | 'no-results' | 'skipped'
@@ -16,6 +18,9 @@ export interface SearchResult {
   part_number: string
   manufacturer_name?: string | null
   alias_used?: string | null
+  submitted_manufacturer?: string | null
+  match_status?: MatchStatus
+  match_confidence?: number | null
   confidence?: number | null
   source_url?: string | null
   debug_log?: string | null
@@ -32,6 +37,7 @@ export interface UploadResponse {
   imported: number
   skipped: number
   errors: string[]
+  status_message?: string | null
 }
 
 export interface PartRead extends SearchResult {

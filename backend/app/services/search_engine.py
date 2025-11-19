@@ -292,6 +292,17 @@ class PartSearchEngine:
             return part.manufacturer_hint
         return None
 
+    def _evaluate_match(
+        self, submitted: str | None, resolved: str | None
+    ) -> tuple[str | None, float | None]:
+        if not submitted:
+            return None, None
+        if not resolved:
+            return "pending", None
+        score = fuzz.WRatio(submitted, resolved)
+        status = "matched" if score >= 70 else "mismatch"
+        return status, score / 100
+
     async def search_part(self, part: PartBase, *, debug: bool = False) -> SearchResult:
         stage_history: list[StageStatus] = []
         final_candidate: Candidate | None = None
@@ -410,7 +421,28 @@ class PartSearchEngine:
                     )
                     break
 
+        stmt = select(Part).where(Part.part_number == part.part_number).order_by(Part.id.desc())
+        existing_part = (await self.session.execute(stmt)).scalars().first()
+
         if not final_candidate:
+            submitted = part.manufacturer_hint
+            match_status: str | None = None
+            match_confidence: float | None = None
+            if submitted:
+                target = existing_part or Part(part_number=part.part_number)
+                if not existing_part:
+                    self.session.add(target)
+                target.submitted_manufacturer = submitted
+                if target.manufacturer_name:
+                    match_status, match_confidence = self._evaluate_match(
+                        submitted, target.manufacturer_name
+                    )
+                else:
+                    match_status, match_confidence = "pending", None
+                target.match_status = match_status
+                target.match_confidence = match_confidence
+                target.debug_log = "No sources found"
+                await self.session.flush()
             return SearchResult(
                 part_number=part.part_number,
                 manufacturer_name=None,
@@ -420,6 +452,9 @@ class PartSearchEngine:
                 debug_log="No sources found",
                 search_stage=None,
                 stage_history=stage_history,
+                submitted_manufacturer=submitted,
+                match_status=match_status,
+                match_confidence=match_confidence,
             )
 
         manufacturer = await self.resolver.resolve(final_candidate.manufacturer)
@@ -427,8 +462,6 @@ class PartSearchEngine:
             await self.resolver.sync_aliases(manufacturer, [final_candidate.alias_used])
         manufacturer_name = manufacturer.name
 
-        stmt = select(Part).where(Part.part_number == part.part_number).order_by(Part.id.desc())
-        existing_part = (await self.session.execute(stmt)).scalars().first()
         if existing_part:
             target = existing_part
             target.manufacturer = manufacturer
@@ -436,8 +469,15 @@ class PartSearchEngine:
             target = Part(part_number=part.part_number, manufacturer=manufacturer)
             self.session.add(target)
 
+        match_status, match_confidence = self._evaluate_match(
+            part.manufacturer_hint, manufacturer_name
+        )
+
         target.manufacturer_name = manufacturer_name
         target.alias_used = final_candidate.alias_used
+        target.submitted_manufacturer = part.manufacturer_hint
+        target.match_status = match_status
+        target.match_confidence = match_confidence
         target.confidence = final_candidate.confidence
         target.source_url = final_candidate.source_url
         target.debug_log = final_candidate.debug_log if debug else None
@@ -451,6 +491,9 @@ class PartSearchEngine:
             debug_log=final_candidate.debug_log if debug else None,
             search_stage=final_stage,
             stage_history=stage_history,
+            submitted_manufacturer=part.manufacturer_hint,
+            match_status=match_status,
+            match_confidence=match_confidence,
         )
 
     async def search_many(self, items: list[PartBase], *, debug: bool = False) -> list[SearchResult]:

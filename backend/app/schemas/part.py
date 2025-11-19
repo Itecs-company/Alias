@@ -42,6 +42,9 @@ class PartRead(BaseModel):
     part_number: str
     manufacturer_name: Optional[str]
     alias_used: Optional[str]
+    submitted_manufacturer: Optional[str]
+    match_status: Optional[str]
+    match_confidence: Optional[float]
     confidence: Optional[float]
     source_url: Optional[str]
     debug_log: Optional[str]
@@ -69,6 +72,9 @@ class SearchResult(BaseModel):
     part_number: str
     manufacturer_name: Optional[str]
     alias_used: Optional[str]
+    submitted_manufacturer: Optional[str]
+    match_status: Optional[str]
+    match_confidence: Optional[float]
     confidence: Optional[float]
     source_url: Optional[str]
     debug_log: Optional[str]
@@ -88,6 +94,10 @@ class UploadResponse(BaseModel):
     imported: int
     skipped: int
     errors: List[str] = Field(default_factory=list)
+    status_message: Optional[str] = Field(
+        default=None,
+        description="Описание статуса обработки файла",
+    )
 
 
 class ExportResponse(BaseModel):

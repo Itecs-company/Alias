@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from abc import ABC, abstractmethod
 from typing import Any
@@ -167,19 +168,31 @@ class GoogleCustomSearchProvider(SearchProvider):
 
         params = {"key": self.api_key, "cx": self.cx, "q": query, "num": max_results}
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
-            try:
-                response = await client.get(self.base_url, params=params)
-                response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                logger.warning(
-                    "Google Custom Search error %s for query '%s': %s",
-                    exc.response.status_code if exc.response else "?",
-                    query,
-                    exc.response.text if exc.response else exc,
-                )
-                return []
-            except httpx.HTTPError as exc:
-                logger.warning("Google Custom Search request failed for '%s': %s", query, exc)
+            response: httpx.Response | None = None
+            for attempt in range(3):
+                try:
+                    response = await client.get(self.base_url, params=params)
+                    response.raise_for_status()
+                    break
+                except httpx.HTTPStatusError as exc:
+                    status_code = exc.response.status_code if exc.response else "?"
+                    if status_code in {429, 503, "429", "503"} and attempt < 2:
+                        await asyncio.sleep(1.5 * (attempt + 1))
+                        continue
+                    logger.warning(
+                        "Google Custom Search error %s for query '%s': %s",
+                        status_code,
+                        query,
+                        exc.response.text if exc.response else exc,
+                    )
+                    return []
+                except httpx.HTTPError as exc:
+                    if attempt < 2:
+                        await asyncio.sleep(1.5 * (attempt + 1))
+                        continue
+                    logger.warning("Google Custom Search request failed for '%s': %s", query, exc)
+                    return []
+            if response is None:
                 return []
             payload = response.json()
 
@@ -218,18 +231,30 @@ class GoogleWebSearchProvider(SearchProvider):
             "hl": "en",
         }
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
-            try:
-                response = await client.get(self.search_url, params=params, headers=self.headers)
-                response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                logger.warning(
-                    "Google web search returned %s for query '%s'",
-                    exc.response.status_code if exc.response else "?",
-                    query,
-                )
-                return []
-            except httpx.HTTPError as exc:
-                logger.warning("Google web search failed for '%s': %s", query, exc)
+            response: httpx.Response | None = None
+            for attempt in range(3):
+                try:
+                    response = await client.get(self.search_url, params=params, headers=self.headers)
+                    response.raise_for_status()
+                    break
+                except httpx.HTTPStatusError as exc:
+                    status_code = exc.response.status_code if exc.response else "?"
+                    if status_code in {429, 503, "429", "503"} and attempt < 2:
+                        await asyncio.sleep(1.5 * (attempt + 1))
+                        continue
+                    logger.warning(
+                        "Google web search returned %s for query '%s'",
+                        status_code,
+                        query,
+                    )
+                    return []
+                except httpx.HTTPError as exc:
+                    if attempt < 2:
+                        await asyncio.sleep(1.5 * (attempt + 1))
+                        continue
+                    logger.warning("Google web search failed for '%s': %s", query, exc)
+                    return []
+            if response is None:
                 return []
 
         soup = BeautifulSoup(response.text, "html.parser")

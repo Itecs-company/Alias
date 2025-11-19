@@ -62,7 +62,8 @@ async def import_parts_from_excel(
     file: UploadFile,
     *,
     debug: bool = False,
-) -> tuple[int, int, list[str]]:
+) -> tuple[int, int, list[str], str]:
+    display_name = file.filename or "Excel"
     content = await file.read()
     df = pd.read_excel(BytesIO(content))
 
@@ -101,4 +102,5 @@ async def import_parts_from_excel(
             logger.exception("Failed to import part {part}", part=item.part_number)
             errors.append(str(exc))
     await session.commit()
-    return imported, skipped, errors
+    status_message = f"Файл {display_name} обработан: {imported} записей"
+    return imported, skipped, errors, status_message
