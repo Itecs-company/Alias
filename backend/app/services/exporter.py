@@ -13,13 +13,13 @@ from app.models.part import Part
 settings = get_settings()
 
 
-def _build_table_rows(parts: list[Part]) -> list[dict[str, str | int]]:
-    rows: list[dict[str, str | int]] = []
-    for idx, part in enumerate(parts, start=1):
+def _build_table_rows(parts: list[Part]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for part in parts:
         manufacturer = part.manufacturer_name or ""
         alias = part.alias_used or ""
         combined = " / ".join(filter(None, [manufacturer, alias])) or "—"
-        rows.append({"№": idx, "Article": part.part_number, "Manufacturer/Alias": combined})
+        rows.append({"Article": part.part_number, "Manufacturer/Alias": combined})
     return rows
 
 
@@ -28,7 +28,7 @@ async def export_parts_to_excel(session: AsyncSession) -> Path:
     result = await session.execute(stmt)
     parts = result.scalars().all()
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
-    df = pd.DataFrame(_build_table_rows(parts))
+    df = pd.DataFrame(_build_table_rows(parts), columns=["Article", "Manufacturer/Alias"])
     export_path = settings.storage_dir / "export.xlsx"
     df.to_excel(export_path, index=False)
     return export_path
@@ -49,8 +49,8 @@ async def export_parts_to_pdf(session: AsyncSession) -> Path:
     pdf.cell(0, 10, "Сводная таблица производителей", ln=True, align="C")
     pdf.ln(2)
 
-    headers = ["№", "Article", "Manufacturer/Alias"]
-    col_widths = [15, 55, 120]
+    headers = ["Article", "Manufacturer/Alias"]
+    col_widths = [65, 130]
     pdf.set_font("Helvetica", style="B", size=11)
     for header, width in zip(headers, col_widths):
         pdf.cell(width, 10, header, border=1, align="C")
@@ -62,9 +62,8 @@ async def export_parts_to_pdf(session: AsyncSession) -> Path:
         pdf.ln()
     else:
         for row in rows:
-            pdf.cell(col_widths[0], 8, str(row["№"]), border=1, align="C")
-            pdf.cell(col_widths[1], 8, str(row["Article"]), border=1)
-            pdf.cell(col_widths[2], 8, str(row["Manufacturer/Alias"]), border=1, ln=1)
+            pdf.cell(col_widths[0], 8, str(row["Article"]), border=1)
+            pdf.cell(col_widths[1], 8, str(row["Manufacturer/Alias"]), border=1, ln=1)
 
     export_path = settings.storage_dir / "export.pdf"
     pdf.output(export_path)

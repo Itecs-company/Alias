@@ -131,8 +131,8 @@ export function App() {
     const sorted = [...history].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     )
-    return sorted.map((record, index) => ({
-      order: index + 1,
+    return sorted.map((record) => ({
+      key: `${record.id}-${record.part_number}`,
       article: record.part_number,
       manufacturerAlias:
         [record.manufacturer_name, record.alias_used].filter(Boolean).join(' / ') || '—'
@@ -750,8 +750,7 @@ export function App() {
                       Загрузка из Excel
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Шаблон таблицы: обязательные столбцы «Article» и «Manufacturer/Alias», «№» можно опустить. Эти же поля
-                      используются при выгрузке.
+                      Шаблон таблицы: обязательные столбцы «Article» и «Manufacturer/Alias». Эти же поля используются при выгрузке.
                     </Typography>
                     <Button component="label" startIcon={<Upload />} variant="contained">
                       Выбрать файл
@@ -959,15 +958,13 @@ export function App() {
                   <Table stickyHeader size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 600, width: 80 }}>№</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Manufacturer/Alias</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {tableData.map((row) => (
-                        <TableRow key={`${row.order}-${row.article}`} hover>
-                          <TableCell width={80}>{row.order}</TableCell>
+                        <TableRow key={row.key} hover>
                           <TableCell>{row.article}</TableCell>
                           <TableCell>{row.manufacturerAlias}</TableCell>
                         </TableRow>

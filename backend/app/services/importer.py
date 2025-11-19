@@ -23,8 +23,6 @@ COLUMN_ALIASES: dict[str, set[str]] = {
         "partnumber",
         "article",
         "артикул",
-        "номер",
-        "no",
         "articul",
     },
     "manufacturer_hint": {
@@ -44,13 +42,13 @@ COLUMN_ALIASES: dict[str, set[str]] = {
 }
 
 
-ORDINAL_COLUMN_HINTS = {"№", "no", "номер", "number"}
+IGNORED_COLUMNS = {"№", "no", "номер", "number"}
 
 
-def _is_optional_ordinal_column(name: str) -> bool:
+def _should_ignore_column(name: str) -> bool:
     raw = str(name).strip().lower()
     normalized = _normalize_column_name(str(name))
-    return raw in {"№", "no", "номер"} or normalized in ORDINAL_COLUMN_HINTS or "№" in raw
+    return raw in IGNORED_COLUMNS or normalized in IGNORED_COLUMNS or "№" in raw
 
 
 def _normalize(value: object) -> str | None:
@@ -72,18 +70,13 @@ async def import_parts_from_excel(
     df = pd.read_excel(BytesIO(content))
 
     column_mapping: dict[str, str] = {}
-    ordinal_candidates: list[str] = []
     for column in df.columns:
-        if _is_optional_ordinal_column(str(column)):
-            ordinal_candidates.append(str(column))
+        if _should_ignore_column(str(column)):
             continue
         normalized = _normalize_column_name(str(column))
         for target, aliases in COLUMN_ALIASES.items():
             if normalized in aliases and target not in column_mapping:
                 column_mapping[target] = column
-
-    if "part_number" not in column_mapping and ordinal_candidates:
-        column_mapping["part_number"] = ordinal_candidates[0]
 
     if "part_number" not in column_mapping:
         raise ValueError(
