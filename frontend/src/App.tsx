@@ -110,9 +110,14 @@ type StageProgressEntry = { name: StageName; state: StageState; message?: string
 
 type AuthState = { token: string; username: string; role: 'admin' | 'user' }
 const AUTH_STORAGE_KEY = 'aliasfinder:auth'
+const THEME_STORAGE_KEY = 'aliasfinder:theme'
 
 export function App() {
-  const [themeMode, setThemeMode] = useState<'light' | 'dark'>('light')
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
+    if (typeof window === 'undefined') return 'light'
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
+    return stored === 'dark' ? 'dark' : 'light'
+  })
   const [auth, setAuth] = useState<AuthState | null>(() => {
     if (typeof window === 'undefined') return null
     const raw = window.localStorage.getItem(AUTH_STORAGE_KEY)
@@ -146,6 +151,7 @@ export function App() {
   const [currentService, setCurrentService] = useState('—')
   const progressTimerRef = useRef<number | null>(null)
   const progressIndexRef = useRef(0)
+  const toggleTheme = () => setThemeMode((prev) => (prev === 'light' ? 'dark' : 'light'))
   const refreshHistory = async () => {
     try {
       const data = await listParts()
@@ -277,6 +283,11 @@ export function App() {
   }, [auth])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(THEME_STORAGE_KEY, themeMode)
+  }, [themeMode])
+
+  useEffect(() => {
     if (!auth) {
       setAuthToken(null)
       return
@@ -383,17 +394,22 @@ export function App() {
   }
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
+    const input = event.target
+    const file = input.files?.[0]
+    if (!file) {
+      input.value = ''
+      return
+    }
     try {
       const response = await uploadExcel(file, debugMode)
-      setSnackbar(`Импортировано: ${response.imported}, пропущено: ${response.skipped}`)
-      if (response.errors.length) {
-        setSnackbar(`Ошибки: ${response.errors.join(', ')}`)
-      }
+      const baseMessage = `Импортировано: ${response.imported}, пропущено: ${response.skipped}`
+      const errorMessage = response.errors.length ? ` Ошибки: ${response.errors.join(', ')}` : ''
+      setSnackbar(`${baseMessage}${errorMessage}`)
       await refreshHistory()
     } catch (error) {
       setSnackbar('Не удалось загрузить файл')
+    } finally {
+      input.value = ''
     }
   }
 
@@ -483,7 +499,7 @@ export function App() {
               </Stack>
             </Paper>
             <Box mt={3} textAlign="center">
-              <Button variant="text" onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'light')}>
+              <Button variant="text" onClick={toggleTheme}>
                 {themeMode === 'light' ? 'Темная тема' : 'Светлая тема'}
               </Button>
             </Box>
@@ -526,7 +542,7 @@ export function App() {
             AliasFinder · интеллектуальный подбор производителя
           </Typography>
           <Tooltip title={themeMode === 'light' ? 'Темная тема' : 'Светлая тема'}>
-            <IconButton color="inherit" onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'light')}>
+            <IconButton color="inherit" onClick={toggleTheme}>
               {themeMode === 'light' ? <DarkMode /> : <LightMode />}
             </IconButton>
           </Tooltip>

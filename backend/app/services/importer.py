@@ -5,10 +5,7 @@ from io import BytesIO
 import pandas as pd
 from fastapi import UploadFile
 from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.part import Part
 from app.schemas.part import PartCreate
 
 from .search_engine import PartSearchEngine
@@ -97,11 +94,6 @@ async def import_parts_from_excel(
             _normalize(row[manufacturer_hint_column]) if manufacturer_hint_column else None
         )
         item = PartCreate(part_number=part_number, manufacturer_hint=manufacturer_hint)
-        stmt = select(Part).where(Part.part_number == item.part_number)
-        result = await session.execute(stmt)
-        if result.scalar_one_or_none():
-            skipped += 1
-            continue
         try:
             await engine.search_part(item, debug=debug)
             imported += 1
