@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppBar,
   Avatar,
@@ -854,81 +854,81 @@ export function App() {
               {results.length === 0 ? (
                 <Typography color="text.secondary">Запустите поиск, чтобы увидеть результаты.</Typography>
               ) : (
-                <Grid container spacing={3}>
-                  {results.map((result, index) => (
-                    <Grid item xs={12} md={6} key={`${result.part_number}-${index}`}>
-                      <Paper
-                        variant="outlined"
-                        sx={{
-                          p: 3,
-                          borderRadius: 3,
-                          borderColor: 'divider',
-                          backgroundImage: (theme) =>
-                            theme.palette.mode === 'light'
-                              ? 'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(243,246,255,0.9))'
-                              : 'linear-gradient(135deg, rgba(20,26,35,0.95), rgba(10,16,25,0.9))'
-                        }}
-                      >
-                        <Stack spacing={1.5}>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center">
-                            <Box>
-                              <Typography variant="h6">{result.part_number}</Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                {result.search_stage
-                                  ? `Финальный сервис: ${
-                                      stageLabels[result.search_stage as StageName] ?? result.search_stage
-                                    }`
-                                  : 'Сервис не определён'}
-                              </Typography>
-                            </Box>
-                            <Chip
-                              label={
-                                result.confidence
-                                  ? `${(result.confidence * 100).toFixed(1)}%`
-                                  : '—'
-                              }
-                              color="secondary"
-                              variant="outlined"
-                            />
-                          </Stack>
-                          <Divider light />
-                          <Typography>
-                            Производитель: <strong>{result.manufacturer_name ?? '—'}</strong>
-                          </Typography>
-                          <Typography>Алиас: {result.alias_used ?? '—'}</Typography>
-                          {result.source_url && (
-                            <Typography>
-                              Источник{' '}
-                              <Box component="a" href={result.source_url} target="_blank" rel="noreferrer" sx={{ color: 'secondary.main' }}>
-                                {result.source_url}
-                              </Box>
-                            </Typography>
-                          )}
-                          {result.stage_history && result.stage_history.length > 0 && (
-                            <Stack direction="row" spacing={1} flexWrap="wrap" mt={1}>
-                              {result.stage_history.map((stage) => (
-                                <Chip
-                                  key={`${result.part_number}-${stage.name}`}
-                                  size="small"
-                                  label={`${stage.name}: ${stageStatusDescription[stage.status]}`}
-                                  color={stageStatusChipColor[stage.status]}
-                                  title={stage.message ?? undefined}
-                                />
-                              ))}
-                            </Stack>
-                          )}
-                          {debugMode && result.debug_log && (
-                            <Paper variant="outlined" sx={{ p: 2, mt: 1 }}>
-                              <Typography variant="body2" color="secondary">
-                                {result.debug_log}
-                              </Typography>
-                            </Paper>
-                          )}
-                        </Stack>
-                      </Paper>
-                    </Grid>
-                  ))}
-                </Grid>
+                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Confidence</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Service</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Source</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Stages</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {results.map((result, index) => (
+                        <Fragment key={`${result.part_number}-${index}`}>
+                          <TableRow hover>
+                            <TableCell>{result.part_number}</TableCell>
+                            <TableCell>{result.manufacturer_name ?? '—'}</TableCell>
+                            <TableCell>{result.alias_used ?? '—'}</TableCell>
+                            <TableCell>
+                              {result.confidence ? `${(result.confidence * 100).toFixed(1)}%` : '—'}
+                            </TableCell>
+                            <TableCell>
+                              {result.search_stage
+                                ? stageLabels[result.search_stage as StageName] ?? result.search_stage
+                                : '—'}
+                            </TableCell>
+                            <TableCell>
+                              {result.source_url ? (
+                                <Box
+                                  component="a"
+                                  href={result.source_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  sx={{ color: 'secondary.main', wordBreak: 'break-all' }}
+                                >
+                                  {result.source_url}
+                                </Box>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {result.stage_history && result.stage_history.length > 0 ? (
+                                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                  {result.stage_history.map((stage) => (
+                                    <Chip
+                                      key={`${result.part_number}-${stage.name}`}
+                                      size="small"
+                                      label={`${stage.name}: ${stageStatusDescription[stage.status]}`}
+                                      color={stageStatusChipColor[stage.status]}
+                                      title={stage.message ?? undefined}
+                                    />
+                                  ))}
+                                </Stack>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                          </TableRow>
+                          {debugMode && result.debug_log ? (
+                            <TableRow>
+                              <TableCell colSpan={7} sx={{ backgroundColor: 'action.hover' }}>
+                                <Typography variant="body2" color="text.secondary">
+                                  {result.debug_log}
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </Stack>
           </Paper>
