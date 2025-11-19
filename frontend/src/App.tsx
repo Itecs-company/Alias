@@ -750,8 +750,8 @@ export function App() {
                       Загрузка из Excel
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Шаблон таблицы: столбцы «№», «Article», «Manufacturer/Alias». Эти же поля используются при
-                      выгрузке.
+                      Шаблон таблицы: обязательные столбцы «Article» и «Manufacturer/Alias», «№» можно опустить. Эти же поля
+                      используются при выгрузке.
                     </Typography>
                     <Button component="label" startIcon={<Upload />} variant="contained">
                       Выбрать файл
