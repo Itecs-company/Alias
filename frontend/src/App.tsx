@@ -181,15 +181,12 @@ export function App() {
 
   const theme = useMemo(() => buildTheme(themeMode), [themeMode])
   const isAdmin = auth?.role === 'admin'
-  const gradientBackground = useMemo(
-    () =>
-      themeMode === 'light'
-        ?
-          'radial-gradient(circle at 20% 20%, rgba(13,114,133,0.08), transparent 40%), radial-gradient(circle at 80% 0%, rgba(132,94,247,0.12), transparent 45%), linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%)'
-        :
-          'radial-gradient(circle at 25% 25%, rgba(77,171,247,0.15), transparent 45%), radial-gradient(circle at 80% 0%, rgba(247,131,172,0.15), transparent 45%), linear-gradient(180deg, #05090f 0%, #0f1827 100%)',
-    [themeMode]
-  )
+  const gradientBackground = useMemo(() => {
+    if (themeMode === 'light') {
+      return 'radial-gradient(circle at 20% 20%, rgba(13,114,133,0.08), transparent 40%), radial-gradient(circle at 80% 0%, rgba(132,94,247,0.12), transparent 45%), linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%)'
+    }
+    return 'radial-gradient(circle at 25% 25%, rgba(77,171,247,0.15), transparent 45%), radial-gradient(circle at 80% 0%, rgba(247,131,172,0.15), transparent 45%), linear-gradient(180deg, #05090f 0%, #0f1827 100%)'
+  }, [themeMode])
   const activeStepperIndex = useMemo(() => {
     const activeIdx = stageProgress.findIndex((entry) => entry.state === 'active')
     if (activeIdx >= 0) return activeIdx
