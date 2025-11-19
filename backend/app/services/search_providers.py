@@ -44,8 +44,19 @@ class SerpAPISearchProvider(SearchProvider):
             "api_key": settings.serpapi_key,
         }
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
-            response = await client.get(self.base_url, params=params)
-            response.raise_for_status()
+            try:
+                response = await client.get(self.base_url, params=params)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "SerpAPI returned %s for query '%s'", 
+                    exc.response.status_code if exc.response else "?",
+                    query,
+                )
+                return []
+            except httpx.HTTPError as exc:
+                logger.warning("SerpAPI request failed for '%s': %s", query, exc)
+                return []
             payload = response.json()
 
         if "organic_results" in payload:
