@@ -4,11 +4,9 @@ from io import BytesIO
 
 import pandas as pd
 from fastapi import UploadFile
-from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.part import PartCreate
 
-from .search_engine import PartSearchEngine
 
 
 def _normalize_column_name(name: str) -> str:
@@ -85,7 +83,6 @@ async def import_parts_from_excel(
     skipped = 0
     errors: list[str] = []
     queued_items: list[PartCreate] = []
-    engine = PartSearchEngine(session)
     for _, row in df.iterrows():
         part_number = _normalize(row[column_mapping["part_number"]])
         if not part_number:
@@ -97,12 +94,7 @@ async def import_parts_from_excel(
         )
         item = PartCreate(part_number=part_number, manufacturer_hint=manufacturer_hint)
         queued_items.append(item)
-        try:
-            await engine.search_part(item, debug=debug)
-            imported += 1
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Failed to import part {part}", part=item.part_number)
-            errors.append(str(exc))
-    await session.commit()
+        imported += 1
+
     status_message = f"Файл {display_name} обработан: {imported} записей"
     return imported, skipped, errors, status_message, queued_items
