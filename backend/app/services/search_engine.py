@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from dataclasses import dataclass
 from typing import List
@@ -509,7 +510,10 @@ class PartSearchEngine:
         )
 
     async def search_many(self, items: list[PartBase], *, debug: bool = False) -> list[SearchResult]:
-        results: list[SearchResult] = []
-        for item in items:
-            results.append(await self.search_part(item, debug=debug))
-        return results
+        semaphore = asyncio.Semaphore(4)
+
+        async def run(item: PartBase) -> SearchResult:
+            async with semaphore:
+                return await self.search_part(item, debug=debug)
+
+        return await asyncio.gather(*(run(item) for item in items))
