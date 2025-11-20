@@ -812,12 +812,13 @@ export function App() {
                         {uploadState.status === 'uploading' && <LinearProgress color="secondary" />}
                         <Chip
                           label={uploadState.message ?? 'Обработка файла'}
-                          color=
+                          color={
                             uploadState.status === 'done'
                               ? 'success'
                               : uploadState.status === 'uploading'
                               ? 'info'
                               : 'error'
+                          }
                           variant="outlined"
                         />
                       </Stack>
