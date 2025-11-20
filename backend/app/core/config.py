@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model_default: str = Field(default="gpt-4.1")
     openai_balance_threshold_usd: float | None = None
+    allow_insecure_ssl: bool = Field(default=False)
     proxy_host: str | None = None
     proxy_port: int | None = None
     proxy_username: str | None = None

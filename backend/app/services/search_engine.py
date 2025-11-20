@@ -151,6 +151,8 @@ class PartSearchEngine:
             f"{part.part_number} datasheet manufacturer",
             f"{part.part_number} {part.manufacturer_hint} datasheet" if part.manufacturer_hint else None,
             f"{part.part_number} {part.manufacturer_hint} pdf" if part.manufacturer_hint else None,
+            f"{part.part_number} pdf",
+            f"{part.part_number} spec sheet",
         ]
         urls: list[str] = []
         for provider in providers:
@@ -244,6 +246,20 @@ class PartSearchEngine:
                 manufacturer_names.append(" ".join(tokens[:3]))
         if not manufacturer_names:
             return None
+
+        best_known: tuple[str, float] | None = None
+        for name in manufacturer_names:
+            match = process.extractOne(name, KNOWN_MANUFACTURERS, scorer=fuzz.WRatio)
+            if match:
+                score = match[1]
+                if not best_known or score > best_known[1]:
+                    best_known = (match[0], score)
+        if best_known and best_known[1] >= 82:
+            manufacturer = best_known[0]
+            alias = self._alias_if_similar(part, manufacturer)
+            confidence = min(0.97, best_known[1] / 100)
+            debug = f"Определено по базе производителей ({confidence:.2f})"
+            return manufacturer, alias, confidence, debug
 
         if part.manufacturer_hint:
             match = process.extractOne(
@@ -373,6 +389,7 @@ class PartSearchEngine:
                     status = "success"
                     final_candidate = candidate
                     final_stage = config.name
+                    skip_remaining = True
             stage_history.append(
                 StageStatus(
                     name=config.name,
@@ -386,15 +403,11 @@ class PartSearchEngine:
             if final_candidate:
                 skip_remaining = True
 
-        if final_candidate:
-            stage_history.append(
-                StageStatus(
-                    name="OpenAI",
-                    status="skipped",
-                    message="OpenAI не потребовался",
-                )
-            )
-        else:
+        need_llm = final_candidate is None or (
+            final_candidate.confidence is not None and final_candidate.confidence < 0.8
+        )
+
+        if need_llm:
             evaluation = await self._search_stage(part, [self.fallback_provider], "OpenAI")
             candidate = evaluation.candidate
             status = "no-results"
@@ -408,8 +421,12 @@ class PartSearchEngine:
                 message = "OpenAI не смог определить производителя"
             else:
                 status = "success"
-                final_candidate = candidate
-                final_stage = "OpenAI"
+                if (final_candidate is None) or (
+                    final_candidate.confidence is None
+                    or candidate.confidence > final_candidate.confidence
+                ):
+                    final_candidate = candidate
+                    final_stage = "OpenAI"
             stage_history.append(
                 StageStatus(
                     name="OpenAI",
@@ -418,6 +435,14 @@ class PartSearchEngine:
                     provider=", ".join(evaluation.provider_names) or None,
                     urls_considered=evaluation.urls_considered,
                     message=message,
+                )
+            )
+        elif final_candidate:
+            stage_history.append(
+                StageStatus(
+                    name="OpenAI",
+                    status="skipped",
+                    message="OpenAI не потребовался",
                 )
             )
 

@@ -15,4 +15,6 @@ def httpx_client_kwargs(**kwargs: Any) -> dict[str, Any]:
         client_kwargs["timeout"] = httpx.Timeout(30.0)
     if settings.proxy_url:
         client_kwargs.setdefault("proxies", settings.proxy_url)
+    if settings.allow_insecure_ssl:
+        client_kwargs.setdefault("verify", False)
     return client_kwargs
