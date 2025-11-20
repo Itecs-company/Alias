@@ -146,10 +146,15 @@ class PartSearchEngine:
         return [item.get("link") for item in results if item.get("link")]
 
     async def _collect_urls(self, part: PartBase, providers: list[SearchProvider]) -> list[str]:
-        query = f"{part.part_number} {part.manufacturer_hint or ''} datasheet manufacturer"
+        queries = [
+            f"{part.part_number} datasheet manufacturer",
+            f"{part.part_number} {part.manufacturer_hint} datasheet" if part.manufacturer_hint else None,
+            f"{part.part_number} {part.manufacturer_hint} pdf" if part.manufacturer_hint else None,
+        ]
         urls: list[str] = []
         for provider in providers:
-            urls.extend(await self._search_with_provider(provider, query))
+            for query in filter(None, queries):
+                urls.extend(await self._search_with_provider(provider, query))
         seen: set[str] = set()
         unique_urls: list[str] = []
         for url in urls:
@@ -246,7 +251,7 @@ class PartSearchEngine:
                 scorer=fuzz.WRatio,
             )
             if match and match[1] >= 67:
-                confidence = match[1] / 100
+                confidence = max(0.67, match[1] / 100)
                 manufacturer = match[0]
                 debug = f"Совпадение с подсказкой оператора ({confidence:.2f})"
                 return manufacturer, part.manufacturer_hint, confidence, debug
@@ -256,7 +261,14 @@ class PartSearchEngine:
             manufacturer = top[0]
             confidence = top[1] / 100
             alias = self._alias_if_similar(part, manufacturer)
-            debug = f"Эвристика по контексту даташита ({confidence:.2f})"
+            if part.manufacturer_hint:
+                hint_score = fuzz.WRatio(part.manufacturer_hint, manufacturer) / 100
+                confidence = max(confidence, min(0.95, hint_score))
+                debug = (
+                    f"Эвристика по контексту даташита ({confidence:.2f}), совпадение с подсказкой {hint_score:.2f}"
+                )
+            else:
+                debug = f"Эвристика по контексту даташита ({confidence:.2f})"
             return manufacturer, alias, confidence, debug
 
         manufacturer = manufacturer_names[0]
