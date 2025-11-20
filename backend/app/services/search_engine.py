@@ -148,16 +148,18 @@ class PartSearchEngine:
 
     async def _collect_urls(self, part: PartBase, providers: list[SearchProvider]) -> list[str]:
         queries = [
-            f"{part.part_number} datasheet manufacturer",
             f"{part.part_number} {part.manufacturer_hint} datasheet" if part.manufacturer_hint else None,
-            f"{part.part_number} {part.manufacturer_hint} pdf" if part.manufacturer_hint else None,
+            f"{part.part_number} datasheet manufacturer",
             f"{part.part_number} pdf",
-            f"{part.part_number} spec sheet",
         ]
         urls: list[str] = []
         for provider in providers:
             for query in filter(None, queries):
                 urls.extend(await self._search_with_provider(provider, query))
+                if len(urls) >= 10:
+                    break
+            if len(urls) >= 10:
+                break
         seen: set[str] = set()
         unique_urls: list[str] = []
         for url in urls:
@@ -339,6 +341,45 @@ class PartSearchEngine:
         fallback_candidate: Candidate | None = None
         fallback_stage: str | None = None
 
+        stmt = select(Part).where(Part.part_number == part.part_number).order_by(Part.id.desc())
+        existing_part = (await self.session.execute(stmt)).scalars().first()
+
+        if existing_part and existing_part.manufacturer_name:
+            match_status, match_confidence = self._evaluate_match(
+                part.manufacturer_hint, existing_part.manufacturer_name
+            )
+            if not part.manufacturer_hint or (match_status == "matched"):
+                stage_history.append(
+                    StageStatus(
+                        name="Internet",
+                        status="skipped",
+                        message="Использован ранее найденный производитель",
+                    )
+                )
+                stage_history.append(
+                    StageStatus(
+                        name="googlesearch",
+                        status="skipped",
+                        message="Использован ранее найденный производитель",
+                    )
+                )
+                stage_history.append(
+                    StageStatus(name="OpenAI", status="skipped", message="Результат уже в базе")
+                )
+                return SearchResult(
+                    part_number=part.part_number,
+                    manufacturer_name=existing_part.manufacturer_name,
+                    alias_used=existing_part.alias_used,
+                    confidence=existing_part.confidence,
+                    source_url=existing_part.source_url,
+                    debug_log=existing_part.debug_log if debug else None,
+                    search_stage=None,
+                    stage_history=stage_history,
+                    submitted_manufacturer=part.manufacturer_hint,
+                    match_status=match_status,
+                    match_confidence=match_confidence,
+                )
+
         stage_configs: list[StageConfig] = [StageConfig("Internet", self.providers)]
         stage_configs.append(
             StageConfig(
@@ -458,9 +499,6 @@ class PartSearchEngine:
                         }
                     )
                     break
-
-        stmt = select(Part).where(Part.part_number == part.part_number).order_by(Part.id.desc())
-        existing_part = (await self.session.execute(stmt)).scalars().first()
 
         if not final_candidate:
             submitted = part.manufacturer_hint

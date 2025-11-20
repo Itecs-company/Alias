@@ -164,6 +164,7 @@ class OpenAISearchProvider(SearchProvider):
 
 class GoogleCustomSearchProvider(SearchProvider):
     base_url = "https://www.googleapis.com/customsearch/v1"
+    _rate_limit = asyncio.Semaphore(1)
 
     def __init__(self) -> None:
         self.name = "google-custom-search"
@@ -181,33 +182,34 @@ class GoogleCustomSearchProvider(SearchProvider):
 
         params = {"key": self.api_key, "cx": self.cx, "q": query, "num": max_results}
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
-            response: httpx.Response | None = None
-            for attempt in range(4):
-                try:
-                    response = await client.get(self.base_url, params=params)
-                    response.raise_for_status()
-                    break
-                except httpx.HTTPStatusError as exc:
-                    status_code = exc.response.status_code if exc.response else "?"
-                    if status_code in {429, 503, "429", "503"} and attempt < 3:
-                        await asyncio.sleep(1.2 * (attempt + 1) + random.random())
-                        continue
-                    logger.warning(
-                        "Google Custom Search error %s for query '%s': %s",
-                        status_code,
-                        query,
-                        exc.response.text if exc.response else exc,
-                    )
+            async with self._rate_limit:
+                response: httpx.Response | None = None
+                for attempt in range(4):
+                    try:
+                        response = await client.get(self.base_url, params=params)
+                        response.raise_for_status()
+                        break
+                    except httpx.HTTPStatusError as exc:
+                        status_code = exc.response.status_code if exc.response else "?"
+                        if status_code in {429, 503, "429", "503"} and attempt < 3:
+                            await asyncio.sleep(1.5 * (attempt + 1) + random.random())
+                            continue
+                        logger.warning(
+                            "Google Custom Search error %s for query '%s': %s",
+                            status_code,
+                            query,
+                            exc.response.text if exc.response else exc,
+                        )
+                        return []
+                    except httpx.HTTPError as exc:
+                        if attempt < 3:
+                            await asyncio.sleep(1.5 * (attempt + 1) + random.random())
+                            continue
+                        logger.warning("Google Custom Search request failed for '%s': %s", query, exc)
+                        return []
+                if response is None:
                     return []
-                except httpx.HTTPError as exc:
-                    if attempt < 3:
-                        await asyncio.sleep(1.2 * (attempt + 1) + random.random())
-                        continue
-                    logger.warning("Google Custom Search request failed for '%s': %s", query, exc)
-                    return []
-            if response is None:
-                return []
-            payload = response.json()
+                payload = response.json()
 
         items = payload.get("items", [])
         results: list[dict[str, Any]] = []
@@ -226,6 +228,7 @@ class GoogleCustomSearchProvider(SearchProvider):
 
 class GoogleWebSearchProvider(SearchProvider):
     search_url = "https://www.google.com/search"
+    _rate_limit = asyncio.Semaphore(2)
 
     def __init__(self) -> None:
         self.name = "googlesearch"
@@ -244,31 +247,32 @@ class GoogleWebSearchProvider(SearchProvider):
             "hl": "en",
         }
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
-            response: httpx.Response | None = None
-            for attempt in range(4):
-                try:
-                    response = await client.get(self.search_url, params=params, headers=self.headers)
-                    response.raise_for_status()
-                    break
-                except httpx.HTTPStatusError as exc:
-                    status_code = exc.response.status_code if exc.response else "?"
-                    if status_code in {429, 503, "429", "503"} and attempt < 3:
-                        await asyncio.sleep(1.2 * (attempt + 1) + random.random())
-                        continue
-                    logger.warning(
-                        "Google web search returned %s for query '%s'",
-                        status_code,
-                        query,
-                    )
+            async with self._rate_limit:
+                response: httpx.Response | None = None
+                for attempt in range(4):
+                    try:
+                        response = await client.get(self.search_url, params=params, headers=self.headers)
+                        response.raise_for_status()
+                        break
+                    except httpx.HTTPStatusError as exc:
+                        status_code = exc.response.status_code if exc.response else "?"
+                        if status_code in {429, 503, "429", "503"} and attempt < 3:
+                            await asyncio.sleep(1.4 * (attempt + 1) + random.random())
+                            continue
+                        logger.warning(
+                            "Google web search returned %s for query '%s'",
+                            status_code,
+                            query,
+                        )
+                        return []
+                    except httpx.HTTPError as exc:
+                        if attempt < 3:
+                            await asyncio.sleep(1.4 * (attempt + 1) + random.random())
+                            continue
+                        logger.warning("Google web search failed for '%s': %s", query, exc)
+                        return []
+                if response is None:
                     return []
-                except httpx.HTTPError as exc:
-                    if attempt < 3:
-                        await asyncio.sleep(1.2 * (attempt + 1) + random.random())
-                        continue
-                    logger.warning("Google web search failed for '%s': %s", query, exc)
-                    return []
-            if response is None:
-                return []
 
         soup = BeautifulSoup(response.text, "html.parser")
         results: list[dict[str, Any]] = []
