@@ -114,7 +114,7 @@ async def upload_excel(
     debug: bool = Form(False),
     session: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
-    imported, skipped, errors, status_message = await import_parts_from_excel(
+    imported, skipped, errors, status_message, items = await import_parts_from_excel(
         session, file, debug=debug
     )
     return UploadResponse(
@@ -122,6 +122,7 @@ async def upload_excel(
         skipped=skipped,
         errors=errors,
         status_message=status_message,
+        items=items,
     )
 
 

@@ -166,6 +166,7 @@ export function App() {
   const [uploadState, setUploadState] = useState<{ status: 'idle' | 'uploading' | 'done' | 'error'; message?: string }>(
     { status: 'idle' }
   )
+  const [uploadedItems, setUploadedItems] = useState<PartRequestItem[]>([])
   const [currentService, setCurrentService] = useState('—')
   const progressTimerRef = useRef<number | null>(null)
   const progressIndexRef = useRef(0)
@@ -383,8 +384,8 @@ export function App() {
   const removeRow = (index: number) =>
     setItems((prev) => (prev.length === 1 ? prev : prev.filter((_, idx) => idx !== index)))
 
-  const submitSearch = async () => {
-    const filled = items.filter((item) => item.part_number.trim().length)
+  const performSearch = async (targets: PartRequestItem[]) => {
+    const filled = targets.filter((item) => item.part_number.trim().length)
     if (!filled.length) {
       setSnackbar('Добавьте хотя бы один артикул для поиска')
       finishProgress()
@@ -407,6 +408,10 @@ export function App() {
       setLoading(false)
       finishProgress(latestStageHistory)
     }
+  }
+
+  const submitSearch = async () => {
+    await performSearch(items)
   }
 
   const submitManual = async () => {
@@ -437,15 +442,22 @@ export function App() {
       const baseMessage = `Импортировано: ${response.imported}, пропущено: ${response.skipped}`
       const errorMessage = response.errors.length ? ` Ошибки: ${response.errors.join(', ')}` : ''
       const statusMessage = response.status_message ?? `Файл ${file.name} обработан`
-      setUploadState({ status: 'done', message: statusMessage })
+      setUploadedItems(response.items ?? [])
+      setItems((response.items ?? []).length ? response.items : [{ ...emptyItem }])
+      setUploadState({ status: 'done', message: `${statusMessage}. Готово к поиску` })
       setSnackbar(`${statusMessage}. ${baseMessage}${errorMessage}`)
       await refreshHistory()
     } catch (error) {
       setUploadState({ status: 'error', message: 'Не удалось загрузить файл' })
+      setUploadedItems([])
       setSnackbar('Не удалось загрузить файл')
     } finally {
       input.value = ''
     }
+  }
+
+  const runUploadedSearch = async () => {
+    await performSearch(uploadedItems)
   }
 
   const handleExport = async (type: 'pdf' | 'excel') => {
@@ -823,6 +835,18 @@ export function App() {
                         />
                       </Stack>
                     )}
+                    <Button
+                      startIcon={<Search />}
+                      variant="contained"
+                      color="secondary"
+                      disabled={uploadState.status !== 'done' || !uploadedItems.length || loading}
+                      onClick={runUploadedSearch}
+                    >
+                      Запуск поиска
+                    </Button>
+                    <Typography variant="caption" color="text.secondary">
+                      После успешной загрузки таблицы кнопка «Запуск поиска» станет активной и выполнит поиск по загруженным записям.
+                    </Typography>
                   </Stack>
                 </Paper>
 

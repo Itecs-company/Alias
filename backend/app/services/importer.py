@@ -62,7 +62,7 @@ async def import_parts_from_excel(
     file: UploadFile,
     *,
     debug: bool = False,
-) -> tuple[int, int, list[str], str]:
+) -> tuple[int, int, list[str], str, list[PartCreate]]:
     display_name = file.filename or "Excel"
     content = await file.read()
     df = pd.read_excel(BytesIO(content))
@@ -84,6 +84,7 @@ async def import_parts_from_excel(
     imported = 0
     skipped = 0
     errors: list[str] = []
+    queued_items: list[PartCreate] = []
     engine = PartSearchEngine(session)
     for _, row in df.iterrows():
         part_number = _normalize(row[column_mapping["part_number"]])
@@ -95,6 +96,7 @@ async def import_parts_from_excel(
             _normalize(row[manufacturer_hint_column]) if manufacturer_hint_column else None
         )
         item = PartCreate(part_number=part_number, manufacturer_hint=manufacturer_hint)
+        queued_items.append(item)
         try:
             await engine.search_part(item, debug=debug)
             imported += 1
@@ -103,4 +105,4 @@ async def import_parts_from_excel(
             errors.append(str(exc))
     await session.commit()
     status_message = f"Файл {display_name} обработан: {imported} записей"
-    return imported, skipped, errors, status_message
+    return imported, skipped, errors, status_message, queued_items

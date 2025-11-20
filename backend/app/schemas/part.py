@@ -98,6 +98,10 @@ class UploadResponse(BaseModel):
         default=None,
         description="Описание статуса обработки файла",
     )
+    items: List[PartCreate] = Field(
+        default_factory=list,
+        description="Список элементов, полученных из загруженного файла",
+    )
 
 
 class ExportResponse(BaseModel):

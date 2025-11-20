@@ -38,6 +38,7 @@ export interface UploadResponse {
   skipped: number
   errors: string[]
   status_message?: string | null
+  items: PartRequestItem[]
 }
 
 export interface PartRead extends SearchResult {
