@@ -42,15 +42,20 @@ async def login(
     payload: LoginRequest,
     session: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    username = payload.username.strip()
+    username_input = payload.username.strip()
+    username_lower = username_input.lower()
     password = payload.password
 
-    if username == settings.admin_username and password == settings.admin_password:
-        token = create_access_token({"sub": username, "role": "admin"})
-        return TokenResponse(access_token=token, username=username, role="admin")
+    if username_lower == settings.admin_username.lower() and password == settings.admin_password:
+        token = create_access_token({"sub": settings.admin_username, "role": "admin"})
+        return TokenResponse(access_token=token, username=settings.admin_username, role="admin")
 
-    stmt = select(User).where(User.username == username)
+    stmt = select(User).where(User.username == username_input)
     db_user = (await session.execute(stmt)).scalar_one_or_none()
+
+    if db_user is None and username_input != username_lower:
+        stmt = select(User).where(User.username == username_lower)
+        db_user = (await session.execute(stmt)).scalar_one_or_none()
     if db_user is None or not verify_password(password, db_user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 

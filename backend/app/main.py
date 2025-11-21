@@ -10,7 +10,9 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.router import router
 from app.core.config import get_settings
-from app.core.security import get_password_hash
+from passlib.exc import UnknownHashError
+
+from app.core.security import get_password_hash, verify_password
 from app.models import base  # noqa: F401
 from app.models.part import Base
 from app.models.user import User
@@ -66,15 +68,31 @@ async def on_startup() -> None:
         await conn.run_sync(_upgrade_schema)
 
     async with async_session_factory() as session:
-        stmt = select(User).order_by(User.id).limit(1)
+        stmt = select(User).where(User.username == settings.default_user_username)
         user = (await session.execute(stmt)).scalar_one_or_none()
+        needs_update = False
+
         if user is None:
-            session.add(
-                User(
-                    username=settings.default_user_username,
-                    password_hash=get_password_hash(settings.default_user_password),
-                )
+            user = User(
+                username=settings.default_user_username,
+                password_hash=get_password_hash(settings.default_user_password),
+                role="user",
             )
+            session.add(user)
+            needs_update = True
+        else:
+            try:
+                if not verify_password(settings.default_user_password, user.password_hash):
+                    needs_update = True
+            except UnknownHashError:
+                needs_update = True
+
+            if user.role != "user":
+                user.role = "user"
+                needs_update = True
+
+        if needs_update:
+            user.password_hash = get_password_hash(settings.default_user_password)
             await session.commit()
 
 
