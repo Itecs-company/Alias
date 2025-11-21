@@ -50,6 +50,25 @@ async def login(
         token = create_access_token({"sub": settings.admin_username, "role": "admin"})
         return TokenResponse(access_token=token, username=settings.admin_username, role="admin")
 
+    if username_lower == settings.default_user_username.lower() and password == settings.default_user_password:
+        # Auto-heal the default operator account if the row is missing or the hash became incompatible
+        stmt_default = select(User).where(User.username == settings.default_user_username)
+        db_default = (await session.execute(stmt_default)).scalar_one_or_none()
+        if db_default is None:
+            db_default = User(
+                username=settings.default_user_username,
+                password_hash=get_password_hash(settings.default_user_password),
+                role="user",
+            )
+            session.add(db_default)
+        else:
+            db_default.username = settings.default_user_username
+            db_default.role = db_default.role or "user"
+            db_default.password_hash = get_password_hash(settings.default_user_password)
+        await session.commit()
+        token = create_access_token({"sub": db_default.username, "role": db_default.role})
+        return TokenResponse(access_token=token, username=db_default.username, role=db_default.role)
+
     stmt = select(User).where(User.username == username_input)
     db_user = (await session.execute(stmt)).scalar_one_or_none()
 
