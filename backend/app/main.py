@@ -50,7 +50,7 @@ def _upgrade_schema(connection) -> None:  # pragma: no cover - runtime bootstrap
         "match_confidence": "FLOAT",
     }.items():
         if name not in parts_columns:
-            connection.execute(text(f"ALTER TABLE parts ADD COLUMN {ddl}"))
+            connection.execute(text(f"ALTER TABLE parts ADD COLUMN {name} {ddl}"))
 
     user_columns = {row[1] for row in connection.execute(text("PRAGMA table_info(users)"))}
     if "role" not in user_columns:
