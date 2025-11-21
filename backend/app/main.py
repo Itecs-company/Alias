@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from sqlalchemy import select, text
+from sqlalchemy.exc import OperationalError
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,8 +50,14 @@ def _upgrade_schema(connection) -> None:  # pragma: no cover - runtime bootstrap
         "match_status": "VARCHAR(50)",
         "match_confidence": "FLOAT",
     }.items():
-        if name not in parts_columns:
+        if not name:
+            continue
+        if name in parts_columns:
+            continue
+        try:
             connection.execute(text(f"ALTER TABLE parts ADD COLUMN {name} {ddl}"))
+        except OperationalError as exc:  # pragma: no cover - defensive boot fix
+            logging.warning("Skipping column %s during schema upgrade: %s", name, exc)
 
     user_columns = {row[1] for row in connection.execute(text("PRAGMA table_info(users)"))}
     if "role" not in user_columns:
