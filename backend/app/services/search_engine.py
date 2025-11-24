@@ -380,7 +380,12 @@ class PartSearchEngine:
                     match_confidence=match_confidence,
                 )
 
-        stage_configs: list[StageConfig] = [StageConfig("Internet", self.providers)]
+        # Требуем уверенность результата ещё на первом этапе, чтобы при сомнительных
+        # совпадениях поиск продолжил работу через Google CSE и OpenAI, вместо того
+        # чтобы останавливаться на эвристике с низкой достоверностью.
+        stage_configs: list[StageConfig] = [
+            StageConfig("Internet", self.providers, confidence_threshold=0.75)
+        ]
         stage_configs.append(
             StageConfig(
                 "googlesearch",
