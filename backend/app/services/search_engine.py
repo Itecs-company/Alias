@@ -10,6 +10,7 @@ from loguru import logger
 from rapidfuzz import fuzz, process
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.part import Manufacturer, ManufacturerAlias, Part
 from app.schemas.part import PartBase, SearchResult, StageStatus
@@ -103,7 +104,11 @@ class ManufacturerResolver:
         self.session = session
 
     async def resolve(self, name: str) -> Manufacturer:
-        stmt = select(Manufacturer).where(Manufacturer.name.ilike(name))
+        stmt = (
+            select(Manufacturer)
+            .options(selectinload(Manufacturer.aliases))
+            .where(Manufacturer.name.ilike(name))
+        )
         result = await self.session.execute(stmt)
         manufacturer = result.scalar_one_or_none()
         if manufacturer:
@@ -115,10 +120,21 @@ class ManufacturerResolver:
         return manufacturer
 
     async def sync_aliases(self, manufacturer: Manufacturer, aliases: List[str]) -> None:
-        existing = {alias.name.lower(): alias for alias in manufacturer.aliases}
+        if not aliases:
+            return
+
+        stmt = select(ManufacturerAlias).where(
+            ManufacturerAlias.manufacturer_id == manufacturer.id
+        )
+        result = await self.session.execute(stmt)
+        existing = {alias.name.lower(): alias for alias in result.scalars()}
+
         for alias in aliases:
-            if alias.lower() not in existing:
-                manufacturer.aliases.append(ManufacturerAlias(name=alias))
+            key = alias.lower()
+            if key not in existing:
+                self.session.add(
+                    ManufacturerAlias(name=alias, manufacturer_id=manufacturer.id)
+                )
         await self.session.flush()
 
 

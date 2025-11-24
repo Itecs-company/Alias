@@ -184,15 +184,16 @@ class GoogleCustomSearchProvider(SearchProvider):
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             async with self._rate_limit:
                 response: httpx.Response | None = None
-                for attempt in range(4):
+                for attempt in range(3):
                     try:
                         response = await client.get(self.base_url, params=params)
                         response.raise_for_status()
                         break
                     except httpx.HTTPStatusError as exc:
                         status_code = exc.response.status_code if exc.response else "?"
-                        if status_code in {429, 503, "429", "503"} and attempt < 3:
-                            await asyncio.sleep(1.5 * (attempt + 1) + random.random())
+                        # Treat 429/503 as a signal to pause briefly, but avoid hammering the API.
+                        if status_code in {429, 503, "429", "503"} and attempt < 2:
+                            await asyncio.sleep(2.5 * (attempt + 1) + random.random())
                             continue
                         logger.warning(
                             "Google Custom Search error %s for query '%s': %s",
@@ -202,8 +203,8 @@ class GoogleCustomSearchProvider(SearchProvider):
                         )
                         return []
                     except httpx.HTTPError as exc:
-                        if attempt < 3:
-                            await asyncio.sleep(1.5 * (attempt + 1) + random.random())
+                        if attempt < 2:
+                            await asyncio.sleep(2.0 * (attempt + 1) + random.random())
                             continue
                         logger.warning("Google Custom Search request failed for '%s': %s", query, exc)
                         return []
