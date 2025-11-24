@@ -42,7 +42,12 @@ import {
   Bolt,
   Lock,
   Logout,
-  AcUnit
+  AcUnit,
+  DeleteForever,
+  VisibilityOff,
+  Visibility,
+  ListAlt,
+  FilterAlt
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
@@ -58,9 +63,11 @@ import {
   updateCredentials as updateCredentialsRequest,
   setAuthToken,
   setUnauthorizedHandler,
-  fetchProfile
+  fetchProfile,
+  fetchLogs,
+  deletePartById
 } from './api'
-import { MatchStatus, PartRead, PartRequestItem, SearchResult, StageStatus } from './types'
+import { MatchStatus, PartRead, PartRequestItem, SearchLog, SearchResult, StageStatus } from './types'
 
 const emptyItem: PartRequestItem = { part_number: '', manufacturer_hint: '' }
 
@@ -152,11 +159,23 @@ export function App() {
   const [items, setItems] = useState<PartRequestItem[]>([{ ...emptyItem }])
   const [results, setResults] = useState<SearchResult[]>([])
   const [history, setHistory] = useState<PartRead[]>([])
+  const [historyFilter, setHistoryFilter] = useState('')
+  const [historyHidden, setHistoryHidden] = useState(false)
+  const [manufacturerFilter, setManufacturerFilter] = useState<'all' | 'found' | 'missing'>('all')
+  const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
+  const [logs, setLogs] = useState<SearchLog[]>([])
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logFilters, setLogFilters] = useState<{ provider: string; direction: string; q: string }>({
+    provider: '',
+    direction: '',
+    q: ''
+  })
   const tableData = useMemo(() => {
     const sorted = [...history].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     )
     return sorted.map((record) => ({
+      id: record.id,
       key: `${record.id}-${record.part_number}`,
       article: record.part_number,
       manufacturer: record.manufacturer_name ?? '—',
@@ -166,6 +185,27 @@ export function App() {
       matchConfidence: record.match_confidence ?? null
     }))
   }, [history])
+  const filteredTableData = useMemo(() => {
+    return tableData.filter((row) => {
+      const isFound = row.manufacturer !== '—' && row.matchStatus !== 'mismatch'
+      const isMissing = row.manufacturer === '—' || row.matchStatus === 'mismatch'
+      if (manufacturerFilter === 'found') return isFound
+      if (manufacturerFilter === 'missing') return isMissing
+      return true
+    })
+  }, [manufacturerFilter, tableData])
+  const filteredHistory = useMemo(() => {
+    if (historyHidden) return []
+    const term = historyFilter.trim().toLowerCase()
+    if (!term) return history
+    return history.filter((record) => {
+      return (
+        record.part_number.toLowerCase().includes(term) ||
+        (record.manufacturer_name ?? '').toLowerCase().includes(term) ||
+        (record.submitted_manufacturer ?? '').toLowerCase().includes(term)
+      )
+    })
+  }, [history, historyFilter, historyHidden])
   const [snackbar, setSnackbar] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [stageProgress, setStageProgress] = useState<StageProgressEntry[]>(() =>
@@ -187,6 +227,28 @@ export function App() {
       setHistory(data)
     } catch (error) {
       setSnackbar('Не удалось получить историю поиска')
+    }
+  }
+
+  const loadLogs = async () => {
+    try {
+      setLogsLoading(true)
+      const data = await fetchLogs({ ...logFilters, limit: 200 })
+      setLogs(data)
+    } catch (error) {
+      setSnackbar('Не удалось загрузить логи')
+    } finally {
+      setLogsLoading(false)
+    }
+  }
+
+  const handleDeletePartRow = async (id: number) => {
+    try {
+      await deletePartById(id)
+      await refreshHistory()
+      setSnackbar('Строка удалена')
+    } catch (error) {
+      setSnackbar('Не удалось удалить строку')
     }
   }
 
@@ -348,6 +410,11 @@ export function App() {
     }
     verify()
   }, [auth])
+
+  useEffect(() => {
+    if (activePage !== 'logs' || !auth) return
+    loadLogs()
+  }, [activePage, auth, logFilters])
 
   const handleLoginSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -614,6 +681,20 @@ export function App() {
           <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 600 }}>
             AliasFinder · интеллектуальный подбор производителя
           </Typography>
+          <ToggleButtonGroup
+            value={activePage}
+            exclusive
+            size="small"
+            onChange={(_, value) => value && setActivePage(value)}
+            sx={{ mr: 2 }}
+          >
+            <ToggleButton value="dashboard" aria-label="Рабочая область">
+              <Bolt fontSize="small" />
+            </ToggleButton>
+            <ToggleButton value="logs" aria-label="Логи">
+              <ListAlt fontSize="small" />
+            </ToggleButton>
+          </ToggleButtonGroup>
             <ToggleButtonGroup
               value={themeMode}
               exclusive
@@ -651,7 +732,8 @@ export function App() {
       </AppBar>
 
       <Container maxWidth="xl" sx={{ pt: { xs: 10, md: 14 }, pb: 8 }}>
-        <Stack spacing={4}>
+        {activePage === 'dashboard' ? (
+          <Stack spacing={4}>
           <Paper
             elevation={0}
             sx={{
@@ -1079,14 +1161,29 @@ export function App() {
           >
             <Stack spacing={3}>
               <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
-                <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                  Таблица производителей
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Каждое найденное соответствие мгновенно попадает в таблицу и базу данных.
-                </Typography>
+                <Box>
+                  <Typography variant="h4" sx={{ fontWeight: 600 }}>
+                    Таблица производителей
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Каждое найденное соответствие мгновенно попадает в таблицу и базу данных.
+                  </Typography>
+                </Box>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <ToggleButtonGroup
+                    size="small"
+                    exclusive
+                    value={manufacturerFilter}
+                    onChange={(_, value) => value && setManufacturerFilter(value)}
+                    aria-label="Фильтр производителей"
+                  >
+                    <ToggleButton value="all">Все</ToggleButton>
+                    <ToggleButton value="found">Найденные</ToggleButton>
+                    <ToggleButton value="missing">Не найденные</ToggleButton>
+                  </ToggleButtonGroup>
+                </Stack>
               </Box>
-              {tableData.length === 0 ? (
+              {filteredTableData.length === 0 ? (
                 <Typography color="text.secondary">Пока нет данных. Выполните поиск или импорт.</Typography>
               ) : (
                 <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 420, borderRadius: 3 }}>
@@ -1098,16 +1195,26 @@ export function App() {
                         <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }} align="right">
+                          Действия
+                        </TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {tableData.map((row) => (
+                      {filteredTableData.map((row) => (
                         <TableRow key={row.key} hover>
                           <TableCell>{row.article}</TableCell>
                           <TableCell>{row.manufacturer}</TableCell>
                           <TableCell>{row.alias}</TableCell>
                           <TableCell>{row.submitted}</TableCell>
                           <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
+                          <TableCell align="right">
+                            <Tooltip title="Удалить строку">
+                              <IconButton size="small" color="error" onClick={() => handleDeletePartRow(row.id)}>
+                                <DeleteForever fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1127,14 +1234,33 @@ export function App() {
             }}
           >
             <Stack spacing={3}>
-              <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                История поиска
-              </Typography>
-              {history.length === 0 ? (
+              <Box display="flex" alignItems="center" justifyContent="space-between" gap={2} flexWrap="wrap">
+                <Typography variant="h4" sx={{ fontWeight: 600 }}>
+                  История поиска
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <TextField
+                    size="small"
+                    label="Фильтр"
+                    value={historyFilter}
+                    onChange={(e) => setHistoryFilter(e.target.value)}
+                  />
+                  <Button
+                    variant="outlined"
+                    startIcon={historyHidden ? <Visibility /> : <VisibilityOff />}
+                    onClick={() => setHistoryHidden((prev) => !prev)}
+                  >
+                    {historyHidden ? 'Показать' : 'Скрыть'}
+                  </Button>
+                </Stack>
+              </Box>
+              {historyHidden ? (
+                <Typography color="text.secondary">История скрыта.</Typography>
+              ) : filteredHistory.length === 0 ? (
                 <Typography color="text.secondary">История пуста.</Typography>
               ) : (
                 <Grid container spacing={3}>
-                  {history.map((record) => (
+                  {filteredHistory.map((record) => (
                     <Grid item xs={12} md={6} key={record.id}>
                       <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, borderColor: 'divider' }}>
                         <Stack spacing={1}>
@@ -1168,7 +1294,115 @@ export function App() {
               )}
             </Stack>
           </Paper>
-        </Stack>
+          </Stack>
+        ) : (
+          <Stack spacing={4}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: { xs: 3, md: 4 },
+                borderRadius: 4,
+                border: '1px solid',
+                borderColor: 'divider'
+              }}
+            >
+              <Stack spacing={3}>
+                <Box display="flex" flexWrap="wrap" gap={2} alignItems="center" justifyContent="space-between">
+                  <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                    Логи поисковых запросов
+                  </Typography>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                    <TextField
+                      size="small"
+                      label="Фильтр по запросу"
+                      value={logFilters.q}
+                      onChange={(e) => setLogFilters((prev) => ({ ...prev, q: e.target.value }))}
+                    />
+                    <TextField
+                      size="small"
+                      label="Провайдер"
+                      select
+                      SelectProps={{ native: true }}
+                      value={logFilters.provider}
+                      onChange={(e) => setLogFilters((prev) => ({ ...prev, provider: e.target.value }))}
+                    >
+                      <option value="">Все</option>
+                      <option value="googlesearch">GoogleSearch</option>
+                      <option value="google-custom-search">Google CSE</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="serpapi:google">SerpAPI</option>
+                    </TextField>
+                    <TextField
+                      size="small"
+                      label="Тип"
+                      select
+                      SelectProps={{ native: true }}
+                      value={logFilters.direction}
+                      onChange={(e) => setLogFilters((prev) => ({ ...prev, direction: e.target.value }))}
+                    >
+                      <option value="">Все</option>
+                      <option value="request">Запрос</option>
+                      <option value="response">Ответ</option>
+                    </TextField>
+                    <Button variant="contained" startIcon={<FilterAlt />} onClick={() => loadLogs()} disabled={logsLoading}>
+                      Обновить
+                    </Button>
+                  </Stack>
+                </Box>
+                {logsLoading && <LinearProgress />}
+                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 540, borderRadius: 3 }}>
+                  <Table stickyHeader size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 600 }}>Время</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Провайдер</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Тип</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Запрос</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Статус</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Payload</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {logs.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6}>
+                            <Typography color="text.secondary">Логи отсутствуют или не соответствуют фильтрам.</Typography>
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        logs.map((entry) => (
+                          <TableRow key={entry.id} hover>
+                            <TableCell>{new Date(entry.created_at).toLocaleString()}</TableCell>
+                            <TableCell>{entry.provider}</TableCell>
+                            <TableCell>
+                              <Chip
+                                size="small"
+                                label={entry.direction === 'request' ? 'Запрос' : 'Ответ'}
+                                color={entry.direction === 'request' ? 'default' : 'primary'}
+                                variant="outlined"
+                              />
+                            </TableCell>
+                            <TableCell sx={{ maxWidth: 320 }}>
+                              <Typography variant="body2" noWrap title={entry.query}>
+                                {entry.query}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>{entry.status_code ?? '—'}</TableCell>
+                            <TableCell sx={{ maxWidth: 320 }}>
+                              <Typography variant="body2" noWrap title={entry.payload ?? undefined}>
+                                {entry.payload ?? '—'}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Stack>
+            </Paper>
+          </Stack>
+        )}
       </Container>
     </Box>
     <Snackbar

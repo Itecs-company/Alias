@@ -7,7 +7,8 @@ import {
   PartRequestItem,
   LoginResponse,
   CredentialsUpdatePayload,
-  AuthenticatedUser
+  AuthenticatedUser,
+  SearchLog
 } from './types'
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
@@ -107,4 +108,13 @@ export const exportExcel = async () => {
 export const exportPdf = async () => {
   const response = await client.get<ExportResponse>('/export/pdf')
   return response.data
+}
+
+export const fetchLogs = async (params: { provider?: string; direction?: string; q?: string; limit?: number }) => {
+  const response = await client.get<SearchLog[]>('/logs', { params })
+  return response.data
+}
+
+export const deletePartById = async (id: number) => {
+  await client.delete(`/parts/${id}`)
 }

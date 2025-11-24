@@ -16,6 +16,7 @@ from app.models.part import Manufacturer, ManufacturerAlias, Part
 from app.schemas.part import PartBase, SearchResult, StageStatus
 
 from .document_parser import extract_from_urls
+from .log_recorder import SearchLogRecorder
 from .search_providers import (
     SearchProvider,
     get_default_providers,
@@ -147,10 +148,17 @@ class PartSearchEngine:
         fallback_provider: SearchProvider | None = None,
     ):
         self.session = session
+        self.log_recorder = SearchLogRecorder(session)
         self.providers = providers or get_default_providers()
         self.google_provider = google_provider or get_google_provider()
         self.fallback_provider = fallback_provider or get_fallback_provider()
+        self._attach_recorder()
         self.resolver = ManufacturerResolver(session)
+
+    def _attach_recorder(self) -> None:
+        for provider in [*self.providers, self.google_provider, self.fallback_provider]:
+            if hasattr(provider, "set_recorder"):
+                provider.set_recorder(self.log_recorder)
 
     async def _search_with_provider(
         self, provider: SearchProvider, query: str, *, max_results: int = 5

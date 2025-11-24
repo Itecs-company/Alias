@@ -14,12 +14,40 @@ from bs4 import BeautifulSoup
 
 from app.core.config import get_settings
 from app.core.http import httpx_client_kwargs
+from app.services.log_recorder import SearchLogRecorder, serialize_payload
 
 settings = get_settings()
 
 
 class SearchProvider(ABC):
     name: str
+
+    def __init__(self) -> None:
+        self.log_recorder: SearchLogRecorder | None = None
+
+    def set_recorder(self, recorder: SearchLogRecorder | None) -> None:
+        self.log_recorder = recorder
+
+    async def _log(
+        self,
+        direction: str,
+        query: str,
+        *,
+        status_code: int | None = None,
+        payload: Any | None = None,
+    ) -> None:
+        if not self.log_recorder:
+            return
+        try:
+            await self.log_recorder.record(
+                provider=self.name,
+                direction=direction,
+                query=query,
+                status_code=status_code,
+                payload=serialize_payload(payload) if payload is not None else None,
+            )
+        except Exception:
+            logger.debug("Failed to record search log for %s", self.name)
 
     @abstractmethod
     async def search(self, query: str, *, max_results: int = 5) -> list[dict[str, Any]]:
@@ -30,6 +58,7 @@ class SerpAPISearchProvider(SearchProvider):
     base_url = "https://serpapi.com/search"
 
     def __init__(self, engine: str):
+        super().__init__()
         self.name = f"serpapi:{engine}"
         self.engine = engine
         if not settings.serpapi_key:
@@ -45,6 +74,7 @@ class SerpAPISearchProvider(SearchProvider):
             "num": max_results,
             "api_key": settings.serpapi_key,
         }
+        await self._log("request", query, payload={"engine": self.engine})
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             response: httpx.Response | None = None
             for attempt in range(3):
@@ -62,16 +92,26 @@ class SerpAPISearchProvider(SearchProvider):
                         status_code,
                         query,
                     )
+                    code = int(status_code) if isinstance(status_code, int) or str(status_code).isdigit() else None
+                    await self._log("response", query, status_code=code, payload="error")
                     return []
                 except httpx.HTTPError as exc:
                     if attempt < 2:
                         await asyncio.sleep(1.0 + random.random() * (attempt + 1))
                         continue
                     logger.warning("SerpAPI request failed for '%s': %s", query, exc)
+                    await self._log("response", query, status_code=None, payload=str(exc))
                     return []
             if response is None:
                 return []
             payload = response.json()
+
+        await self._log(
+            "response",
+            query,
+            status_code=response.status_code,
+            payload={"results": len(payload.get("organic_results", [])), "engine": self.engine},
+        )
 
         if "organic_results" in payload:
             return payload["organic_results"][:max_results]
@@ -82,6 +122,7 @@ class SerpAPISearchProvider(SearchProvider):
 
 class OpenAISearchProvider(SearchProvider):
     def __init__(self):
+        super().__init__()
         self.name = "openai"
         if not settings.openai_api_key:
             logger.warning("OpenAI API key is missing. openai provider will not return results.")
@@ -103,6 +144,12 @@ class OpenAISearchProvider(SearchProvider):
             "return reputable URLs (datasheets, manufacturer pages) containing the manufacturer name. "
             "Respond strictly with a JSON array where each item has 'title', 'url', and optional 'summary' fields."
         )
+        await self._log(
+            "request",
+            query,
+            payload={"model": self.model, "max_results": max_results},
+        )
+
         completion = await self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -134,6 +181,12 @@ class OpenAISearchProvider(SearchProvider):
             url = item.get("url") or item.get("link")
             if url:
                 results.append({"title": item.get("title", url), "link": url, "snippet": item.get("summary")})
+        await self._log(
+            "response",
+            query,
+            status_code=200,
+            payload={"results": len(results), "model": self.model},
+        )
         return results[:max_results]
 
     async def _maybe_warn_low_balance(self) -> None:
@@ -167,6 +220,7 @@ class GoogleCustomSearchProvider(SearchProvider):
     _rate_limit = asyncio.Semaphore(1)
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "google-custom-search"
         self.api_key = settings.google_cse_api_key
         self.cx = settings.google_cse_cx
@@ -181,6 +235,7 @@ class GoogleCustomSearchProvider(SearchProvider):
             return []
 
         params = {"key": self.api_key, "cx": self.cx, "q": query, "num": max_results}
+        await self._log("request", query, payload={"cx": self.cx})
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             async with self._rate_limit:
                 response: httpx.Response | None = None
@@ -201,16 +256,30 @@ class GoogleCustomSearchProvider(SearchProvider):
                             query,
                             exc.response.text if exc.response else exc,
                         )
+                        await self._log(
+                            "response",
+                            query,
+                            status_code=int(status_code) if isinstance(status_code, int) or str(status_code).isdigit() else None,
+                            payload=exc.response.text if exc.response else None,
+                        )
                         return []
                     except httpx.HTTPError as exc:
                         if attempt < 2:
                             await asyncio.sleep(2.0 * (attempt + 1) + random.random())
                             continue
                         logger.warning("Google Custom Search request failed for '%s': %s", query, exc)
+                        await self._log("response", query, status_code=None, payload=str(exc))
                         return []
                 if response is None:
                     return []
                 payload = response.json()
+
+        await self._log(
+            "response",
+            query,
+            status_code=response.status_code,
+            payload={"results": len(payload.get("items", []))},
+        )
 
         items = payload.get("items", [])
         results: list[dict[str, Any]] = []
@@ -232,6 +301,7 @@ class GoogleWebSearchProvider(SearchProvider):
     _rate_limit = asyncio.Semaphore(2)
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "googlesearch"
         self.headers = {
             "User-Agent": (
@@ -247,6 +317,7 @@ class GoogleWebSearchProvider(SearchProvider):
             "num": str(max_results * 2),  # fetch a few extras so we can filter redirects
             "hl": "en",
         }
+        await self._log("request", query)
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             async with self._rate_limit:
                 response: httpx.Response | None = None
@@ -265,12 +336,19 @@ class GoogleWebSearchProvider(SearchProvider):
                             status_code,
                             query,
                         )
+                        await self._log(
+                            "response",
+                            query,
+                            status_code=int(status_code) if isinstance(status_code, int) or str(status_code).isdigit() else None,
+                            payload="error",
+                        )
                         return []
                     except httpx.HTTPError as exc:
                         if attempt < 3:
                             await asyncio.sleep(1.4 * (attempt + 1) + random.random())
                             continue
                         logger.warning("Google web search failed for '%s': %s", query, exc)
+                        await self._log("response", query, status_code=None, payload=str(exc))
                         return []
                 if response is None:
                     return []
@@ -290,6 +368,12 @@ class GoogleWebSearchProvider(SearchProvider):
             results.append({"title": title_tag.get_text(strip=True), "link": href, "snippet": snippet})
             if len(results) >= max_results:
                 break
+        await self._log(
+            "response",
+            query,
+            status_code=response.status_code,
+            payload={"results": len(results)},
+        )
         return results
 
     def _clean_link(self, url: str | None) -> str | None:

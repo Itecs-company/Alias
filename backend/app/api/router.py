@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.part import Part
+from app.models.search_log import SearchLog
 from app.models.user import User
 from app.schemas.auth import (
     AuthenticatedUser,
@@ -15,6 +16,7 @@ from app.schemas.auth import (
     LoginRequest,
     TokenResponse,
 )
+from app.schemas.logs import SearchLogRead
 from app.schemas.part import (
     ExportResponse,
     PartCreate,
@@ -170,6 +172,17 @@ async def list_parts(session: AsyncSession = Depends(get_db)) -> list[PartRead]:
     return [PartRead.model_validate(part) for part in result.scalars().all()]
 
 
+@protected_router.delete("/parts/{part_id}")
+async def delete_part(part_id: int, session: AsyncSession = Depends(get_db)) -> dict[str, str]:
+    stmt = select(Part).where(Part.id == part_id)
+    db_part = (await session.execute(stmt)).scalar_one_or_none()
+    if db_part is None:
+        raise HTTPException(status_code=404, detail="Part not found")
+    await session.delete(db_part)
+    await session.commit()
+    return {"status": "deleted"}
+
+
 @protected_router.post("/parts", response_model=PartRead)
 async def create_part(part: PartCreate, session: AsyncSession = Depends(get_db)) -> PartRead:
     engine = PartSearchEngine(session)
@@ -216,6 +229,25 @@ async def export_excel(session: AsyncSession = Depends(get_db)) -> ExportRespons
 async def export_pdf(session: AsyncSession = Depends(get_db)) -> ExportResponse:
     path = await export_parts_to_pdf(session)
     return ExportResponse(url=f"/api/download/{path.name}")
+
+
+@protected_router.get("/logs", response_model=list[SearchLogRead])
+async def list_logs(
+    provider: str | None = None,
+    direction: str | None = None,
+    q: str | None = None,
+    limit: int = 200,
+    session: AsyncSession = Depends(get_db),
+) -> list[SearchLogRead]:
+    stmt = select(SearchLog).order_by(SearchLog.created_at.desc()).limit(limit)
+    if provider:
+        stmt = stmt.where(SearchLog.provider == provider)
+    if direction:
+        stmt = stmt.where(SearchLog.direction == direction)
+    if q:
+        stmt = stmt.where(SearchLog.query.ilike(f"%{q}%"))
+    result = await session.execute(stmt)
+    return [SearchLogRead.model_validate(row) for row in result.scalars().all()]
 
 
 @router.get("/download/{filename}")

@@ -16,6 +16,7 @@ from passlib.exc import UnknownHashError
 from app.core.security import get_password_hash, verify_password
 from app.models import base  # noqa: F401
 from app.models.part import Base
+from app.models.search_log import SearchLog  # noqa: F401
 from app.models.user import User
 
 settings = get_settings()

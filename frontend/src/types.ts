@@ -66,3 +66,15 @@ export interface AuthenticatedUser {
   username: string
   role: 'admin' | 'user'
 }
+
+export type SearchLogDirection = 'request' | 'response'
+
+export interface SearchLog {
+  id: number
+  provider: string
+  direction: SearchLogDirection | string
+  query: string
+  status_code?: number | null
+  payload?: string | null
+  created_at: string
+}
