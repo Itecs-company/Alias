@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, SyntheticEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppBar,
   Avatar,
@@ -41,10 +41,12 @@ import {
   Search,
   Bolt,
   Lock,
-  Logout
+  Logout,
+  AcUnit
 } from '@mui/icons-material'
+import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
-import { buildTheme } from './theme'
+import { ThemeMode, buildTheme } from './theme'
 import {
   createPart,
   exportExcel,
@@ -61,6 +63,12 @@ import {
 import { MatchStatus, PartRead, PartRequestItem, SearchResult, StageStatus } from './types'
 
 const emptyItem: PartRequestItem = { part_number: '', manufacturer_hint: '' }
+
+const THEME_OPTIONS: { value: ThemeMode; label: string; icon: JSX.Element }[] = [
+  { value: 'light', label: 'Светлая', icon: <LightMode fontSize="small" /> },
+  { value: 'dark', label: 'Тёмная', icon: <DarkMode fontSize="small" /> },
+  { value: 'holiday', label: 'Зимняя 3D', icon: <AcUnit fontSize="small" /> }
+]
 
 const STAGE_SEQUENCE = ['Internet', 'googlesearch', 'OpenAI'] as const
 type StageName = (typeof STAGE_SEQUENCE)[number]
@@ -125,10 +133,10 @@ const AUTH_STORAGE_KEY = 'aliasfinder:auth'
 const THEME_STORAGE_KEY = 'aliasfinder:theme'
 
 export function App() {
-  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     if (typeof window === 'undefined') return 'light'
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
-    return stored === 'dark' ? 'dark' : 'light'
+    return stored === 'dark' || stored === 'holiday' ? (stored as ThemeMode) : 'light'
   })
   const [auth, setAuth] = useState<AuthState | null>(() => {
     if (typeof window === 'undefined') return null
@@ -170,7 +178,9 @@ export function App() {
   const [currentService, setCurrentService] = useState('—')
   const progressTimerRef = useRef<number | null>(null)
   const progressIndexRef = useRef(0)
-  const toggleTheme = () => setThemeMode((prev) => (prev === 'light' ? 'dark' : 'light'))
+  const handleThemeChange = (_: SyntheticEvent, value: ThemeMode | null) => {
+    if (value) setThemeMode(value)
+  }
   const refreshHistory = async () => {
     try {
       const data = await listParts()
@@ -183,10 +193,13 @@ export function App() {
   const theme = useMemo(() => buildTheme(themeMode), [themeMode])
   const isAdmin = auth?.role === 'admin'
   const gradientBackground = useMemo(() => {
+    if (themeMode === 'holiday') {
+      return 'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.25), transparent 40%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.18), transparent 45%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.2), transparent 40%), linear-gradient(180deg, #e8f6ff 0%, #e7f0ff 45%, #f8f3ff 100%)'
+    }
     if (themeMode === 'light') {
       return 'radial-gradient(circle at 20% 20%, rgba(13,114,133,0.08), transparent 40%), radial-gradient(circle at 80% 0%, rgba(132,94,247,0.12), transparent 45%), linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%)'
     }
-    return 'radial-gradient(circle at 25% 25%, rgba(77,171,247,0.15), transparent 45%), radial-gradient(circle at 80% 0%, rgba(247,131,172,0.15), transparent 45%), linear-gradient(180deg, #05090f 0%, #0f1827 100%)'
+    return 'radial-gradient(circle at 25% 25%, rgba(77,171,247,0.15), transparent 45%), radial-gradient(circle at 80% 0%, rgba(27,131,172,0.15), transparent 45%), linear-gradient(180deg, #05090f 0%, #0f1827 100%)'
   }, [themeMode])
   const activeStepperIndex = useMemo(() => {
     const activeIdx = stageProgress.findIndex((entry) => entry.state === 'active')
@@ -545,11 +558,24 @@ export function App() {
                 </Button>
               </Stack>
             </Paper>
-            <Box mt={3} textAlign="center">
-              <Button variant="text" onClick={toggleTheme}>
-                {themeMode === 'light' ? 'Темная тема' : 'Светлая тема'}
-              </Button>
-            </Box>
+              <Box mt={3} textAlign="center">
+                <ToggleButtonGroup
+                  exclusive
+                  value={themeMode}
+                  size="small"
+                  onChange={handleThemeChange}
+                  aria-label="Переключение тем"
+                >
+                  {THEME_OPTIONS.map((option) => (
+                    <ToggleButton key={option.value} value={option.value} aria-label={option.label}>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        {option.icon}
+                        <Typography variant="body2">{option.label}</Typography>
+                      </Stack>
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+              </Box>
           </Container>
         </Box>
         <Snackbar
@@ -588,14 +614,23 @@ export function App() {
           <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 600 }}>
             AliasFinder · интеллектуальный подбор производителя
           </Typography>
-          <Tooltip title={themeMode === 'light' ? 'Темная тема' : 'Светлая тема'}>
-            <IconButton color="inherit" onClick={toggleTheme}>
-              {themeMode === 'light' ? <DarkMode /> : <LightMode />}
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Режим отладки">
-            <IconButton color={debugMode ? 'secondary' : 'default'} onClick={() => setDebugMode((prev) => !prev)}>
-              <BugReport />
+            <ToggleButtonGroup
+              value={themeMode}
+              exclusive
+              size="small"
+              onChange={handleThemeChange}
+              aria-label="Переключение тем"
+              sx={{ mr: 1 }}
+            >
+              {THEME_OPTIONS.map((option) => (
+                <ToggleButton key={option.value} value={option.value} aria-label={option.label}>
+                  {option.icon}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+            <Tooltip title="Режим отладки">
+              <IconButton color={debugMode ? 'secondary' : 'default'} onClick={() => setDebugMode((prev) => !prev)}>
+                <BugReport />
             </IconButton>
           </Tooltip>
           <Divider orientation="vertical" flexItem sx={{ mx: 2, display: { xs: 'none', sm: 'block' }, opacity: 0.35 }} />

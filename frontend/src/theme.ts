@@ -1,5 +1,7 @@
 import { createTheme, ThemeOptions } from '@mui/material/styles'
 
+export type ThemeMode = 'light' | 'dark' | 'holiday'
+
 const lightThemeOptions: ThemeOptions = {
   palette: {
     mode: 'light',
@@ -48,5 +50,45 @@ const darkThemeOptions: ThemeOptions = {
   }
 }
 
-export const buildTheme = (mode: 'light' | 'dark') =>
-  createTheme(mode === 'light' ? lightThemeOptions : darkThemeOptions)
+const holidayThemeOptions: ThemeOptions = {
+  palette: {
+    mode: 'light',
+    primary: {
+      main: '#0fa3b1'
+    },
+    secondary: {
+      main: '#ff6b9a'
+    },
+    background: {
+      default: 'linear-gradient(180deg, #ebf4ff 0%, #d7ecff 45%, #f6f0ff 100%)',
+      paper: 'rgba(255, 255, 255, 0.8)'
+    }
+  },
+  typography: {
+    fontFamily: '"Inter", "Segoe UI", sans-serif'
+  },
+  components: {
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          backdropFilter: 'blur(18px)',
+          border: '1px solid rgba(15, 163, 177, 0.18)',
+          boxShadow: '0 30px 80px rgba(15, 163, 177, 0.15)'
+        }
+      }
+    },
+    MuiButton: {
+      styleOverrides: {
+        contained: {
+          background: 'linear-gradient(135deg, #0fa3b1, #8b5cf6)',
+          color: '#ffffff'
+        }
+      }
+    }
+  }
+}
+
+export const buildTheme = (mode: ThemeMode) =>
+  createTheme(
+    mode === 'light' ? lightThemeOptions : mode === 'dark' ? darkThemeOptions : holidayThemeOptions
+  )
