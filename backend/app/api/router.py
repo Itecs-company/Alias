@@ -26,6 +26,8 @@ from app.schemas.part import (
 from app.services.exporter import export_parts_to_excel, export_parts_to_pdf
 from app.services.importer import import_parts_from_excel
 from app.services.search_engine import PartSearchEngine
+from passlib.exc import UnknownHashError
+
 from app.core.security import create_access_token, get_password_hash, verify_password
 
 from .deps import get_current_user, get_db, get_user_from_header_or_query, require_admin
@@ -37,11 +39,56 @@ protected_router = APIRouter(dependencies=[Depends(get_current_user)])
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+async def _ensure_default_user(session: AsyncSession) -> User:
+    """Make sure the default operator account exists and has a valid hash.
+
+    Some deployments may carry over SQLite volumes from older versions with
+    incompatible password hashes. We eagerly recreate or rehash the default
+    user here so that logging in with ``admin/admin`` always succeeds.
+    """
+
+    stmt = select(User).where(User.username == settings.default_user_username)
+    db_user = (await session.execute(stmt)).scalar_one_or_none()
+    created = False
+
+    if db_user is None:
+        db_user = User(
+            username=settings.default_user_username,
+            password_hash=get_password_hash(settings.default_user_password),
+            role="user",
+        )
+        session.add(db_user)
+        created = True
+    else:
+        needs_update = False
+        try:
+            if not verify_password(settings.default_user_password, db_user.password_hash):
+                needs_update = True
+        except UnknownHashError:
+            needs_update = True
+
+        if db_user.role != "user":
+            db_user.role = "user"
+            needs_update = True
+
+        if needs_update:
+            db_user.password_hash = get_password_hash(settings.default_user_password)
+            created = True
+
+    if created:
+        await session.commit()
+
+    return db_user
+
+
 @auth_router.post("/login", response_model=TokenResponse)
 async def login(
     payload: LoginRequest,
     session: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
+    # Keep the default operator account consistent before evaluating credentials
+    await _ensure_default_user(session)
+
     username_input = payload.username.strip()
     username_lower = username_input.lower()
     password = payload.password
@@ -78,7 +125,13 @@ async def login(
     if db_user is None and username_input != username_lower:
         stmt = select(User).where(User.username == username_lower)
         db_user = (await session.execute(stmt)).scalar_one_or_none()
-    if db_user is None or not verify_password(password, db_user.password_hash):
+    valid = False
+    try:
+        valid = db_user is not None and verify_password(password, db_user.password_hash)
+    except UnknownHashError:
+        valid = False
+
+    if db_user is None or not valid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     token = create_access_token({"sub": db_user.username, "role": db_user.role})
