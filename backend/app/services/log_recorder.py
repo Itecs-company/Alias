@@ -35,6 +35,6 @@ def serialize_payload(data: Any) -> str:
     try:
         from json import dumps
 
-        return dumps(data, ensure_ascii=False)[:2000]
+        return dumps(data, ensure_ascii=False)[:4000]
     except Exception:  # pragma: no cover - defensive
-        return str(data)[:2000]
+        return str(data)[:4000]

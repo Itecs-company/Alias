@@ -9,6 +9,10 @@ import {
   Chip,
   Container,
   CssBaseline,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   FormControlLabel,
   Grid,
@@ -906,6 +910,7 @@ export function App() {
   const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
   const [logs, setLogs] = useState<SearchLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
+  const [selectedLog, setSelectedLog] = useState<SearchLog | null>(null)
   const [logFilters, setLogFilters] = useState<{ provider: string; direction: string; q: string }>({
     provider: '',
     direction: '',
@@ -1004,6 +1009,15 @@ export function App() {
       setSnackbar('Не удалось загрузить логи')
     } finally {
       setLogsLoading(false)
+    }
+  }
+
+  const prettifyPayload = (value?: string | null) => {
+    if (!value) return '—'
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2)
+    } catch (error) {
+      return value
     }
   }
 
@@ -1564,263 +1578,305 @@ export function App() {
             </Stack>
           </Paper>
 
+
           <Grid container spacing={4}>
-            <Grid item xs={12} md={8}>
-              <Stack spacing={4}>
-                <Paper
-                  elevation={6}
-                  sx={{
-                    p: { xs: 3, md: 4 },
-                    borderRadius: 4,
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.95)
-                  }}
-                >
-                  <Stack spacing={3}>
+            <Grid item xs={12}>
+              <Paper
+                elevation={6}
+                sx={{
+                  p: { xs: 3, md: 4 },
+                  borderRadius: 4,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.95)
+                }}
+              >
+                <Stack spacing={3}>
+                  <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
                     <Box>
                       <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                        Поиск производителя по артикулу
+                        Поиск и загрузка производителей
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Добавьте несколько артикулов, задайте предположительный бренд или алиас и запустите оркестратор поиска.
+                        Запустите поиск по артикулу вручную или импортируйте таблицу, затем выгрузите результаты в нужном формате.
                       </Typography>
                     </Box>
-                    <Stack spacing={2}>
-                      {items.map((item, index) => (
-                        <Paper
-                          key={index}
-                          variant="outlined"
-                          sx={{
-                            p: 2,
-                            borderRadius: 3,
-                            borderColor: 'divider',
-                            bgcolor: (theme) => alpha(theme.palette.background.default, 0.4)
-                          }}
-                        >
-                          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
-                            <TextField
-                              label="Артикул"
-                              value={item.part_number}
-                              onChange={(event) => handleItemChange(index, 'part_number', event.target.value)}
-                              fullWidth
-                              required
-                            />
-                            <TextField
-                              label="Предполагаемый производитель или алиас"
-                              value={item.manufacturer_hint ?? ''}
-                              onChange={(event) => handleItemChange(index, 'manufacturer_hint', event.target.value)}
-                              fullWidth
-                            />
-                            <Button variant="text" color="error" onClick={() => removeRow(index)}>
-                              Удалить
+                    <Chip label={`Текущий сервис: ${currentService}`} color="primary" variant="outlined" />
+                  </Box>
+                  <Grid container spacing={3} alignItems="stretch">
+                    <Grid item xs={12} lg={7}>
+                      <Paper
+                        variant="outlined"
+                        sx={{
+                          p: { xs: 2.5, md: 3 },
+                          height: '100%',
+                          borderRadius: 3,
+                          borderColor: 'divider',
+                          backgroundColor: (theme) => alpha(theme.palette.background.default, 0.55)
+                        }}
+                      >
+                        <Stack spacing={3} height="100%">
+                          <Box>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                              Поиск производителя по артикулу
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Добавьте несколько артикулов, задайте предположительный бренд или алиас и запустите оркестратор поиска.
+                            </Typography>
+                          </Box>
+                          <Stack spacing={2} flex={1}>
+                            {items.map((item, index) => (
+                              <Paper
+                                key={index}
+                                variant="outlined"
+                                sx={{
+                                  p: 2,
+                                  borderRadius: 3,
+                                  borderColor: 'divider',
+                                  bgcolor: (theme) => alpha(theme.palette.background.paper, 0.5)
+                                }}
+                              >
+                                <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
+                                  <TextField
+                                    label="Артикул"
+                                    value={item.part_number}
+                                    onChange={(event) => handleItemChange(index, 'part_number', event.target.value)}
+                                    fullWidth
+                                    required
+                                  />
+                                  <TextField
+                                    label="Предполагаемый производитель или алиас"
+                                    value={item.manufacturer_hint ?? ''}
+                                    onChange={(event) => handleItemChange(index, 'manufacturer_hint', event.target.value)}
+                                    fullWidth
+                                  />
+                                  <Button variant="text" color="error" onClick={() => removeRow(index)}>
+                                    Удалить
+                                  </Button>
+                                </Stack>
+                              </Paper>
+                            ))}
+                          </Stack>
+                          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }}>
+                            <Button startIcon={<AddCircleOutline />} variant="outlined" onClick={addRow}>
+                              Добавить строку
+                            </Button>
+                            <Button
+                              startIcon={<Search />}
+                              variant="contained"
+                              color="secondary"
+                              onClick={submitSearch}
+                              disabled={loading}
+                            >
+                              {loading ? 'Поиск…' : 'Запустить поиск'}
+                            </Button>
+                            <Button startIcon={<Bolt />} variant="text" onClick={submitManual}>
+                              Ручное добавление
                             </Button>
                           </Stack>
-                        </Paper>
-                      ))}
-                    </Stack>
-                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-                      <Button startIcon={<AddCircleOutline />} variant="outlined" onClick={addRow}>
-                        Добавить строку
-                      </Button>
-                      <Button
-                        startIcon={<Search />}
-                        variant="contained"
-                        color="secondary"
-                        onClick={submitSearch}
-                        disabled={loading}
-                      >
-                        {loading ? 'Поиск…' : 'Запустить поиск'}
-                      </Button>
-                      <Button startIcon={<Bolt />} variant="text" onClick={submitManual}>
-                        Ручное добавление
-                      </Button>
-                    </Stack>
-                    <FormControlLabel
-                      control={<Switch checked={debugMode} onChange={() => setDebugMode((prev) => !prev)} />}
-                      label="Включить режим отладки"
-                    />
-                  </Stack>
-                </Paper>
-
-                <Paper
-                  elevation={6}
-                  sx={{
-                    p: { xs: 3, md: 4 },
-                    borderRadius: 4,
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.95)
-                  }}
-                >
-                  <Stack spacing={2}>
-                    <Box display="flex" alignItems="center" justifyContent="space-between">
-                      <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                        Прогресс поиска
-                      </Typography>
-                      <Chip label={`Текущий сервис: ${currentService}`} color="primary" variant="outlined" />
-                    </Box>
-                    {loading && <LinearProgress color="secondary" />}
-                    <Stepper alternativeLabel activeStep={activeStepperIndex} nonLinear sx={{ pt: 1 }}>
-                      {stageProgress.map((stage) => (
-                        <Step
-                          key={stage.name}
-                          completed={stage.state === 'done'}
-                          active={stage.state === 'active'}
-                        >
-                          <StepLabel
-                            error={stage.state === 'error'}
-                            optional={
-                              <Typography variant="caption" color="text.secondary">
-                                {stage.message ?? progressStateLabel[stage.state]}
-                              </Typography>
-                            }
-                          >
-                            {stageLabels[stage.name]}
-                          </StepLabel>
-                        </Step>
-                      ))}
-                    </Stepper>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap">
-                      {stageProgress.map((stage) => (
-                        <Chip
-                          key={stage.name}
-                          label={`${stageLabels[stage.name]} · ${progressStateLabel[stage.state]}`}
-                          color={progressStateColor[stage.state]}
-                          variant={stage.state === 'active' ? 'filled' : 'outlined'}
-                          title={stage.message ?? undefined}
-                        />
-                      ))}
-                    </Stack>
-                  </Stack>
-                </Paper>
-              </Stack>
-            </Grid>
-
-            <Grid item xs={12} md={4}>
-              <Stack spacing={4}>
-                <Paper
-                  elevation={6}
-                  sx={{
-                    p: { xs: 3, md: 4 },
-                    borderRadius: 4,
-                    border: '1px solid',
-                    borderColor: 'divider'
-                  }}
-                >
-                  <Stack spacing={2}>
-                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                      Загрузка из Excel
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Шаблон таблицы: обязательные столбцы «Article» и «Manufacturer/Alias». Эти же поля используются при выгрузке.
-                    </Typography>
-                    <Button component="label" startIcon={<Upload />} variant="contained">
-                      Выбрать файл
-                      <input hidden type="file" accept=".xls,.xlsx" onChange={handleUpload} />
-                    </Button>
-                    {uploadState.status !== 'idle' && (
-                      <Stack spacing={1} sx={{ width: '100%' }}>
-                        {uploadState.status === 'uploading' && <LinearProgress color="secondary" />}
-                        <Chip
-                          label={uploadState.message ?? 'Обработка файла'}
-                          color={
-                            uploadState.status === 'done'
-                              ? 'success'
-                              : uploadState.status === 'uploading'
-                              ? 'info'
-                              : 'error'
-                          }
+                          <FormControlLabel
+                            control={<Switch checked={debugMode} onChange={() => setDebugMode((prev) => !prev)} />}
+                            label="Включить режим отладки"
+                          />
+                        </Stack>
+                      </Paper>
+                    </Grid>
+                    <Grid item xs={12} lg={5}>
+                      <Stack spacing={3} height="100%">
+                        <Paper
+                          elevation={0}
                           variant="outlined"
-                        />
-                      </Stack>
-                    )}
-                    <Button
-                      startIcon={<Search />}
-                      variant="contained"
-                      color="secondary"
-                      disabled={uploadState.status !== 'done' || !uploadedItems.length || loading}
-                      onClick={runUploadedSearch}
-                    >
-                      Запуск поиска
-                    </Button>
-                    <Typography variant="caption" color="text.secondary">
-                      После успешной загрузки таблицы кнопка «Запуск поиска» станет активной и выполнит поиск по загруженным записям.
-                    </Typography>
-                  </Stack>
-                </Paper>
+                          sx={{
+                            p: { xs: 2.5, md: 3 },
+                            borderRadius: 3,
+                            borderColor: 'divider',
+                            height: '100%'
+                          }}
+                        >
+                          <Stack spacing={2}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                              Загрузка из Excel
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Шаблон таблицы: обязательные столбцы «Article» и «Manufacturer/Alias». Эти же поля используются при выгрузке.
+                            </Typography>
+                            <Button component="label" startIcon={<Upload />} variant="contained">
+                              Выбрать файл
+                              <input hidden type="file" accept=".xls,.xlsx" onChange={handleUpload} />
+                            </Button>
+                            {uploadState.status !== 'idle' && (
+                              <Stack spacing={1} sx={{ width: '100%' }}>
+                                {uploadState.status === 'uploading' && <LinearProgress color="secondary" />}
+                                <Chip
+                                  label={uploadState.message ?? 'Обработка файла'}
+                                  color={
+                                    uploadState.status === 'done'
+                                      ? 'success'
+                                      : uploadState.status === 'uploading'
+                                      ? 'info'
+                                      : 'error'
+                                  }
+                                  variant="outlined"
+                                />
+                              </Stack>
+                            )}
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+                              <Button
+                                startIcon={<Search />}
+                                variant="contained"
+                                color="secondary"
+                                disabled={uploadState.status !== 'done' || !uploadedItems.length || loading}
+                                onClick={runUploadedSearch}
+                              >
+                                Запуск поиска
+                              </Button>
+                              <Button
+                                startIcon={<FileDownload />}
+                                variant="outlined"
+                                onClick={() => handleExport('excel')}
+                              >
+                                Excel шаблон
+                              </Button>
+                            </Stack>
+                            <Typography variant="caption" color="text.secondary">
+                              После успешной загрузки таблицы кнопка «Запуск поиска» станет активной и выполнит поиск по загруженным записям.
+                            </Typography>
+                          </Stack>
+                        </Paper>
 
-                <Paper
-                  elevation={6}
-                  sx={{
-                    p: { xs: 3, md: 4 },
-                    borderRadius: 4,
-                    border: '1px solid',
-                    borderColor: 'divider'
-                  }}
-                >
-                  <Stack spacing={2}>
-                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                      Выгрузка результатов
+                        <Paper
+                          elevation={0}
+                          variant="outlined"
+                          sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 3, borderColor: 'divider' }}
+                        >
+                          <Stack spacing={2}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                              Выгрузка результатов
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Сформируйте свежие отчёты PDF/Excel прямо из текущей базы.
+                            </Typography>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                              <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
+                                Excel
+                              </Button>
+                              <Button startIcon={<FileDownload />} variant="contained" onClick={() => handleExport('pdf')}>
+                                PDF
+                              </Button>
+                            </Stack>
+                          </Stack>
+                        </Paper>
+                        {isAdmin && (
+                          <Paper
+                            elevation={0}
+                            variant="outlined"
+                            sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 3, borderColor: 'divider' }}
+                          >
+                            <Stack spacing={2}>
+                              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                Управление доступом
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                Измените логин и пароль пользовательской учётной записи для операторов сервиса.
+                              </Typography>
+                              <TextField
+                                label="Новый логин"
+                                value={credentialsForm.username}
+                                onChange={(event) => setCredentialsForm((prev) => ({ ...prev, username: event.target.value }))}
+                                fullWidth
+                              />
+                              <TextField
+                                label="Новый пароль"
+                                type="password"
+                                value={credentialsForm.password}
+                                onChange={(event) => setCredentialsForm((prev) => ({ ...prev, password: event.target.value }))}
+                                fullWidth
+                              />
+                              <Stack direction="row" spacing={2}>
+                                <Button variant="contained" onClick={handleCredentialsUpdate} disabled={credentialsLoading}>
+                                  {credentialsLoading ? 'Сохранение…' : 'Сохранить'}
+                                </Button>
+                                <Button variant="text" onClick={() => setCredentialsForm({ username: '', password: '' })}>
+                                  Очистить
+                                </Button>
+                              </Stack>
+                              <Typography variant="caption" color="text.secondary">
+                                Вход выполнен как администратор: {auth.username}
+                              </Typography>
+                            </Stack>
+                          </Paper>
+                        )}
+                      </Stack>
+                    </Grid>
+                  </Grid>
+                </Stack>
+              </Paper>
+            </Grid>
+            <Grid item xs={12}>
+              <Paper
+                elevation={6}
+                sx={{
+                  p: { xs: 2.5, md: 3 },
+                  borderRadius: 4,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.92),
+                  maxWidth: 1100,
+                  mx: 'auto'
+                }}
+              >
+                <Stack spacing={1.5}>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
+                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                      Прогресс поиска
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Сформируйте свежие отчёты PDF/Excel прямо из текущей базы.
-                    </Typography>
-                    <Stack direction="row" spacing={2}>
-                      <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
-                        Excel
-                      </Button>
-                      <Button startIcon={<FileDownload />} variant="contained" onClick={() => handleExport('pdf')}>
-                        PDF
-                      </Button>
-                    </Stack>
-                  </Stack>
-                </Paper>
-                {isAdmin && (
-                  <Paper
-                    elevation={6}
+                    <Chip size="small" label={`Текущий сервис: ${currentService}`} color="primary" variant="outlined" />
+                  </Box>
+                  {loading && <LinearProgress color="secondary" />}
+                  <Stepper
+                    alternativeLabel
+                    activeStep={activeStepperIndex}
+                    nonLinear
                     sx={{
-                      p: { xs: 3, md: 4 },
-                      borderRadius: 4,
-                      border: '1px solid',
-                      borderColor: 'divider'
+                      pt: 0.5,
+                      '& .MuiStepIcon-root': { fontSize: '1.75rem' },
+                      '& .MuiStepLabel-label': { fontSize: { xs: '0.9rem', sm: '1rem' } },
+                      '& .MuiStepLabel-labelContainer .MuiTypography-caption': { fontSize: '0.75rem' }
                     }}
                   >
-                    <Stack spacing={2}>
-                      <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                        Управление доступом
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Измените логин и пароль пользовательской учётной записи для операторов сервиса.
-                      </Typography>
-                      <TextField
-                        label="Новый логин"
-                        value={credentialsForm.username}
-                        onChange={(event) => setCredentialsForm((prev) => ({ ...prev, username: event.target.value }))}
-                        fullWidth
+                    {stageProgress.map((stage) => (
+                      <Step
+                        key={stage.name}
+                        completed={stage.state === 'done'}
+                        active={stage.state === 'active'}
+                      >
+                        <StepLabel
+                          error={stage.state === 'error'}
+                          optional={
+                            <Typography variant="caption" color="text.secondary">
+                              {stage.message ?? progressStateLabel[stage.state]}
+                            </Typography>
+                          }
+                        >
+                          {stageLabels[stage.name]}
+                        </StepLabel>
+                      </Step>
+                    ))}
+                  </Stepper>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} flexWrap="wrap">
+                    {stageProgress.map((stage) => (
+                      <Chip
+                        key={stage.name}
+                        size="small"
+                        label={`${stageLabels[stage.name]} · ${progressStateLabel[stage.state]}`}
+                        color={progressStateColor[stage.state]}
+                        variant={stage.state === 'active' ? 'filled' : 'outlined'}
+                        title={stage.message ?? undefined}
                       />
-                      <TextField
-                        label="Новый пароль"
-                        type="password"
-                        value={credentialsForm.password}
-                        onChange={(event) => setCredentialsForm((prev) => ({ ...prev, password: event.target.value }))}
-                        fullWidth
-                      />
-                      <Stack direction="row" spacing={2}>
-                        <Button variant="contained" onClick={handleCredentialsUpdate} disabled={credentialsLoading}>
-                          {credentialsLoading ? 'Сохранение…' : 'Сохранить'}
-                        </Button>
-                        <Button variant="text" onClick={() => setCredentialsForm({ username: '', password: '' })}>
-                          Очистить
-                        </Button>
-                      </Stack>
-                      <Typography variant="caption" color="text.secondary">
-                        Вход выполнен как администратор: {auth.username}
-                      </Typography>
-                    </Stack>
-                  </Paper>
-                )}
-              </Stack>
+                    ))}
+                  </Stack>
+                </Stack>
+              </Paper>
             </Grid>
           </Grid>
 
@@ -1990,15 +2046,21 @@ export function App() {
                     component={Paper}
                     variant="outlined"
                     sx={{
-                      maxHeight: 520,
+                      maxHeight: { xs: '55vh', lg: '65vh' },
                       borderRadius: 3,
                       overflow: 'auto',
                       borderColor: 'divider',
+                      width: '100%',
+                      maxWidth: '100%',
                       backgroundImage:
                         'linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.06) 40%, rgba(255,255,255,0.02) 100%)'
                     }}
                   >
-                    <Table stickyHeader size="small" sx={{ minWidth: 960 }}>
+                    <Table
+                      stickyHeader
+                      size="small"
+                      sx={{ minWidth: { xs: 760, md: 960 }, tableLayout: 'fixed' }}
+                    >
                       <TableHead>
                         <TableRow>
                           <TableCell padding="checkbox">
@@ -2408,17 +2470,27 @@ export function App() {
                                 variant="outlined"
                               />
                             </TableCell>
-                            <TableCell sx={{ maxWidth: 320 }}>
-                              <Typography variant="body2" noWrap title={entry.query}>
-                                {entry.query}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>{entry.status_code ?? '—'}</TableCell>
-                            <TableCell sx={{ maxWidth: 320 }}>
-                              <Typography variant="body2" noWrap title={entry.payload ?? undefined}>
-                                {entry.payload ?? '—'}
-                              </Typography>
-                            </TableCell>
+                          <TableCell sx={{ maxWidth: 320 }}>
+                            <Typography variant="body2" noWrap title={entry.query}>
+                              {entry.query}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>{entry.status_code ?? '—'}</TableCell>
+                          <TableCell sx={{ maxWidth: 320 }}>
+                              <Stack spacing={0.5}>
+                                <Typography variant="body2" noWrap title={entry.payload ?? undefined}>
+                                  {entry.payload ?? '—'}
+                                </Typography>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => setSelectedLog(entry)}
+                                  disabled={!entry.payload && !entry.query}
+                                >
+                                  Смотреть JSON
+                                </Button>
+                              </Stack>
+                          </TableCell>
                           </TableRow>
                         ))
                       )}
@@ -2432,6 +2504,82 @@ export function App() {
           </Container>
         </Box>
       </Box>
+      <Dialog
+        open={Boolean(selectedLog)}
+        onClose={() => setSelectedLog(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Детали поискового запроса</DialogTitle>
+        <DialogContent dividers>
+          {selectedLog && (
+            <Stack spacing={2}>
+              <Stack direction="row" spacing={1} flexWrap="wrap">
+                <Chip label={`Провайдер: ${selectedLog.provider}`} size="small" />
+                <Chip
+                  label={selectedLog.direction === 'request' ? 'Запрос' : 'Ответ'}
+                  color={selectedLog.direction === 'request' ? 'default' : 'primary'}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  label={`Статус: ${selectedLog.status_code ?? '—'}`}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  label={new Date(selectedLog.created_at).toLocaleString()}
+                  size="small"
+                  variant="outlined"
+                />
+              </Stack>
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                  Строка запроса
+                </Typography>
+                <Box
+                  component="pre"
+                  sx={{
+                    bgcolor: 'background.default',
+                    p: 1.5,
+                    borderRadius: 2,
+                    fontFamily: 'monospace',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    border: '1px solid',
+                    borderColor: 'divider'
+                  }}
+                >
+                  {selectedLog.query}
+                </Box>
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                  Payload / JSON
+                </Typography>
+                <Box
+                  component="pre"
+                  sx={{
+                    bgcolor: 'background.default',
+                    p: 1.5,
+                    borderRadius: 2,
+                    fontFamily: 'monospace',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    border: '1px solid',
+                    borderColor: 'divider'
+                  }}
+                >
+                  {prettifyPayload(selectedLog.payload)}
+                </Box>
+              </Box>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSelectedLog(null)}>Закрыть</Button>
+        </DialogActions>
+      </Dialog>
       <Snackbar
         open={Boolean(snackbar)}
         message={snackbar}

@@ -74,7 +74,11 @@ class SerpAPISearchProvider(SearchProvider):
             "num": max_results,
             "api_key": settings.serpapi_key,
         }
-        await self._log("request", query, payload={"engine": self.engine})
+        await self._log(
+            "request",
+            query,
+            payload={"url": self.base_url, "params": params, "engine": self.engine},
+        )
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             response: httpx.Response | None = None
             for attempt in range(3):
@@ -110,7 +114,11 @@ class SerpAPISearchProvider(SearchProvider):
             "response",
             query,
             status_code=response.status_code,
-            payload={"results": len(payload.get("organic_results", [])), "engine": self.engine},
+            payload={
+                "results": payload.get("organic_results", [])[:max_results],
+                "engine": self.engine,
+                "status": response.status_code,
+            },
         )
 
         if "organic_results" in payload:
@@ -147,7 +155,16 @@ class OpenAISearchProvider(SearchProvider):
         await self._log(
             "request",
             query,
-            payload={"model": self.model, "max_results": max_results},
+            payload={
+                "model": self.model,
+                "max_results": max_results,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Return JSON: {query}"},
+                ],
+                "temperature": 0,
+                "max_tokens": 500,
+            },
         )
 
         completion = await self.client.chat.completions.create(
@@ -185,7 +202,11 @@ class OpenAISearchProvider(SearchProvider):
             "response",
             query,
             status_code=200,
-            payload={"results": len(results), "model": self.model},
+            payload={
+                "results": results,
+                "model": self.model,
+                "usage": completion.usage.model_dump() if completion.usage else None,
+            },
         )
         return results[:max_results]
 
@@ -235,7 +256,11 @@ class GoogleCustomSearchProvider(SearchProvider):
             return []
 
         params = {"key": self.api_key, "cx": self.cx, "q": query, "num": max_results}
-        await self._log("request", query, payload={"cx": self.cx})
+        await self._log(
+            "request",
+            query,
+            payload={"url": self.base_url, "params": params, "cx": self.cx},
+        )
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             async with self._rate_limit:
                 response: httpx.Response | None = None
@@ -278,7 +303,10 @@ class GoogleCustomSearchProvider(SearchProvider):
             "response",
             query,
             status_code=response.status_code,
-            payload={"results": len(payload.get("items", []))},
+            payload={
+                "results": payload.get("items", [])[:max_results],
+                "status": response.status_code,
+            },
         )
 
         items = payload.get("items", [])
@@ -317,7 +345,11 @@ class GoogleWebSearchProvider(SearchProvider):
             "num": str(max_results * 2),  # fetch a few extras so we can filter redirects
             "hl": "en",
         }
-        await self._log("request", query)
+        await self._log(
+            "request",
+            query,
+            payload={"url": self.search_url, "params": params, "headers": self.headers},
+        )
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             async with self._rate_limit:
                 response: httpx.Response | None = None
@@ -372,7 +404,7 @@ class GoogleWebSearchProvider(SearchProvider):
             "response",
             query,
             status_code=response.status_code,
-            payload={"results": len(results)},
+            payload={"results": results, "status": response.status_code},
         )
         return results
 
