@@ -60,8 +60,8 @@ const holidayThemeOptions: ThemeOptions = {
       main: '#ff6b9a'
     },
     background: {
-      default: 'linear-gradient(180deg, #ebf4ff 0%, #d7ecff 45%, #f6f0ff 100%)',
-      paper: 'rgba(255, 255, 255, 0.8)'
+      default: '#e7f1ff',
+      paper: 'rgba(255, 255, 255, 0.82)'
     }
   },
   typography: {
