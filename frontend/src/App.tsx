@@ -5,6 +5,7 @@ import {
   Avatar,
   Box,
   Button,
+  Checkbox,
   Chip,
   Container,
   CssBaseline,
@@ -31,6 +32,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material'
+import InputAdornment from '@mui/material/InputAdornment'
 import { ThemeProvider, alpha } from '@mui/material/styles'
 import {
   DarkMode,
@@ -44,6 +46,7 @@ import {
   Lock,
   Logout,
   AcUnit,
+  Factory,
   DeleteForever,
   VisibilityOff,
   Visibility,
@@ -886,6 +889,20 @@ export function App() {
   const [historyFilter, setHistoryFilter] = useState('')
   const [historyHidden, setHistoryHidden] = useState(false)
   const [manufacturerFilter, setManufacturerFilter] = useState<'all' | 'found' | 'missing'>('all')
+  const [tableFilters, setTableFilters] = useState<{
+    article: string
+    manufacturer: string
+    alias: string
+    submitted: string
+    match: 'all' | 'matched' | 'mismatch' | 'pending' | 'none'
+  }>({
+    article: '',
+    manufacturer: '',
+    alias: '',
+    submitted: '',
+    match: 'all'
+  })
+  const [selectedRows, setSelectedRows] = useState<number[]>([])
   const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
   const [logs, setLogs] = useState<SearchLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
@@ -910,14 +927,35 @@ export function App() {
     }))
   }, [history])
   const filteredTableData = useMemo(() => {
+    const articleTerm = tableFilters.article.trim().toLowerCase()
+    const manufacturerTerm = tableFilters.manufacturer.trim().toLowerCase()
+    const aliasTerm = tableFilters.alias.trim().toLowerCase()
+    const submittedTerm = tableFilters.submitted.trim().toLowerCase()
     return tableData.filter((row) => {
       const isFound = row.manufacturer !== '—' && row.matchStatus !== 'mismatch'
       const isMissing = row.manufacturer === '—' || row.matchStatus === 'mismatch'
-      if (manufacturerFilter === 'found') return isFound
-      if (manufacturerFilter === 'missing') return isMissing
-      return true
+      if (manufacturerFilter === 'found' && !isFound) return false
+      if (manufacturerFilter === 'missing' && !isMissing) return false
+
+      const matchesArticle = row.article.toLowerCase().includes(articleTerm)
+      const matchesManufacturer = row.manufacturer.toLowerCase().includes(manufacturerTerm)
+      const matchesAlias = row.alias.toLowerCase().includes(aliasTerm)
+      const matchesSubmitted = row.submitted.toLowerCase().includes(submittedTerm)
+      const matchesMatchStatus = (() => {
+        if (tableFilters.match === 'all') return true
+        if (tableFilters.match === 'none') return row.matchStatus === null
+        return row.matchStatus === tableFilters.match
+      })()
+
+      return (
+        matchesArticle &&
+        matchesManufacturer &&
+        matchesAlias &&
+        matchesSubmitted &&
+        matchesMatchStatus
+      )
     })
-  }, [manufacturerFilter, tableData])
+  }, [manufacturerFilter, tableData, tableFilters])
   const filteredHistory = useMemo(() => {
     if (historyHidden) return []
     const term = historyFilter.trim().toLowerCase()
@@ -930,6 +968,9 @@ export function App() {
       )
     })
   }, [history, historyFilter, historyHidden])
+  useEffect(() => {
+    setSelectedRows((prev) => prev.filter((id) => filteredTableData.some((row) => row.id === id)))
+  }, [filteredTableData])
   const [snackbar, setSnackbar] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [stageProgress, setStageProgress] = useState<StageProgressEntry[]>(() =>
@@ -964,6 +1005,14 @@ export function App() {
     } finally {
       setLogsLoading(false)
     }
+  }
+
+  const handleSelectAllRows = (checked: boolean) => {
+    setSelectedRows(checked ? filteredTableData.map((row) => row.id) : [])
+  }
+
+  const handleToggleRowSelection = (id: number) => {
+    setSelectedRows((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]))
   }
 
   const handleDeletePartRow = async (id: number) => {
@@ -1920,40 +1969,283 @@ export function App() {
               {filteredTableData.length === 0 ? (
                 <Typography color="text.secondary">Пока нет данных. Выполните поиск или импорт.</Typography>
               ) : (
-                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 420, borderRadius: 3 }}>
-                  <Table stickyHeader size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }} align="right">
-                          Действия
-                        </TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {filteredTableData.map((row) => (
-                        <TableRow key={row.key} hover>
-                          <TableCell>{row.article}</TableCell>
-                          <TableCell>{row.manufacturer}</TableCell>
-                          <TableCell>{row.alias}</TableCell>
-                          <TableCell>{row.submitted}</TableCell>
-                          <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
-                          <TableCell align="right">
-                            <Tooltip title="Удалить строку">
-                              <IconButton size="small" color="error" onClick={() => handleDeletePartRow(row.id)}>
-                                <DeleteForever fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
+                <Stack spacing={1.5}>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                    <Chip label={`Всего записей: ${tableData.length}`} size="small" color="default" />
+                    <Chip
+                      label={`Отфильтровано: ${filteredTableData.length}`}
+                      size="small"
+                      color="secondary"
+                      variant="outlined"
+                    />
+                    <Chip
+                      label={`Выбрано: ${selectedRows.length}`}
+                      size="small"
+                      color={selectedRows.length ? 'success' : 'default'}
+                      variant={selectedRows.length ? 'filled' : 'outlined'}
+                    />
+                  </Stack>
+
+                  <TableContainer
+                    component={Paper}
+                    variant="outlined"
+                    sx={{
+                      maxHeight: 520,
+                      borderRadius: 3,
+                      overflow: 'auto',
+                      borderColor: 'divider',
+                      backgroundImage:
+                        'linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.06) 40%, rgba(255,255,255,0.02) 100%)'
+                    }}
+                  >
+                    <Table stickyHeader size="small" sx={{ minWidth: 960 }}>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell padding="checkbox">
+                            <Checkbox
+                              color="primary"
+                              indeterminate={
+                                selectedRows.length > 0 && selectedRows.length < filteredTableData.length
+                              }
+                              checked={
+                                filteredTableData.length > 0 &&
+                                selectedRows.length === filteredTableData.length
+                              }
+                              onChange={(e) => handleSelectAllRows(e.target.checked)}
+                              inputProps={{ 'aria-label': 'Выбрать все строки' }}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Артикул</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Производитель</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Alias</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                            Заявленный производитель
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Статус</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Достоверность</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }} align="right">
+                            Действия
                           </TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                        <TableRow>
+                          <TableCell padding="checkbox">
+                            <Typography variant="caption" color="text.secondary">
+                              Фильтр
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="Например, QE75..."
+                              value={tableFilters.article}
+                              onChange={(e) =>
+                                setTableFilters((prev) => ({ ...prev, article: e.target.value }))
+                              }
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <Search fontSize="small" />
+                                  </InputAdornment>
+                                )
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="Найденный производитель"
+                              value={tableFilters.manufacturer}
+                              onChange={(e) =>
+                                setTableFilters((prev) => ({ ...prev, manufacturer: e.target.value }))
+                              }
+                                  InputProps={{
+                                    startAdornment: (
+                                      <InputAdornment position="start">
+                                        <Factory fontSize="small" />
+                                      </InputAdornment>
+                                    )
+                                  }}
+                                />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="Alias"
+                              value={tableFilters.alias}
+                              onChange={(e) => setTableFilters((prev) => ({ ...prev, alias: e.target.value }))}
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <Bolt fontSize="small" />
+                                  </InputAdornment>
+                                )
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="Из заявки"
+                              value={tableFilters.submitted}
+                              onChange={(e) =>
+                                setTableFilters((prev) => ({ ...prev, submitted: e.target.value }))
+                              }
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <ListAlt fontSize="small" />
+                                  </InputAdornment>
+                                )
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              select
+                              label="Статус"
+                              SelectProps={{ native: true }}
+                              value={tableFilters.match}
+                              onChange={(e) =>
+                                setTableFilters((prev) => ({ ...prev, match: e.target.value as typeof prev.match }))
+                              }
+                            >
+                              <option value="all">Все</option>
+                              <option value="matched">Совпадает</option>
+                              <option value="mismatch">Расхождение</option>
+                              <option value="pending">Ожидает</option>
+                              <option value="none">Нет данных</option>
+                            </TextField>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption" color="text.secondary">
+                              Поиск не требуется
+                            </Typography>
+                          </TableCell>
+                          <TableCell />
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filteredTableData.map((row) => {
+                          const isSelected = selectedRows.includes(row.id)
+                          const confidenceValue = row.matchConfidence ? row.matchConfidence * 100 : null
+                          return (
+                            <TableRow
+                              key={row.key}
+                              hover
+                              selected={isSelected}
+                              sx={{
+                                '&:nth-of-type(even)': { backgroundColor: 'action.hover' },
+                                transition: 'background-color 150ms ease',
+                                backgroundColor: (theme) => {
+                                  if (row.matchStatus === 'mismatch') {
+                                    return alpha(theme.palette.error.light, 0.12)
+                                  }
+                                  if (row.matchStatus === 'pending') {
+                                    return alpha(theme.palette.warning.light, 0.12)
+                                  }
+                                  return undefined
+                                }
+                              }}
+                            >
+                              <TableCell padding="checkbox">
+                                <Checkbox
+                                  color="primary"
+                                  checked={isSelected}
+                                  onChange={() => handleToggleRowSelection(row.id)}
+                                  inputProps={{ 'aria-label': `Выбрать ${row.article}` }}
+                                />
+                              </TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>
+                                <Stack spacing={0.5}>
+                                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                    {row.article}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Добавлено: {row.submitted !== '—' ? row.submitted : '—'}
+                                  </Typography>
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.5}>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                    {row.manufacturer}
+                                  </Typography>
+                                  <Chip
+                                    size="small"
+                                    label={row.manufacturer === '—' ? 'Не найдено' : 'Подтянуто'}
+                                    color={row.manufacturer === '—' ? 'warning' : 'success'}
+                                    variant={row.manufacturer === '—' ? 'outlined' : 'filled'}
+                                  />
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.5}>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                    {row.alias}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Из источников поиска
+                                  </Typography>
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.5}>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                    {row.submitted}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    От пользователя
+                                  </Typography>
+                                </Stack>
+                              </TableCell>
+                              <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
+                              <TableCell>
+                                {confidenceValue ? (
+                                  <Stack spacing={0.5}>
+                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                      {confidenceValue.toFixed(1)}%
+                                    </Typography>
+                                    <LinearProgress
+                                      variant="determinate"
+                                      value={confidenceValue}
+                                      color={
+                                        row.matchStatus === 'mismatch'
+                                          ? 'error'
+                                          : row.matchStatus === 'pending'
+                                          ? 'warning'
+                                          : 'success'
+                                      }
+                                      sx={{ height: 8, borderRadius: 6 }}
+                                    />
+                                  </Stack>
+                                ) : (
+                                  <Typography color="text.secondary">—</Typography>
+                                )}
+                              </TableCell>
+                              <TableCell align="right">
+                                <Tooltip title="Удалить строку">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => handleDeletePartRow(row.id)}
+                                  >
+                                    <DeleteForever fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Stack>
               )}
             </Stack>
           </Paper>
