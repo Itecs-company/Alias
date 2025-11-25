@@ -189,6 +189,12 @@ const floatBob = keyframes`
   100% { transform: translateY(0); }
 `
 
+const panBackground = keyframes`
+  0% { transform: scale(1.02) translate3d(0, 0, 0); filter: saturate(1.05); }
+  50% { transform: scale(1.08) translate3d(-2%, -1%, 0); filter: saturate(1.1); }
+  100% { transform: scale(1.02) translate3d(0, 0, 0); filter: saturate(1.05); }
+`
+
 const starPulse = keyframes`
   0% { opacity: 0.3; transform: scale(0.8); }
   50% { opacity: 0.95; transform: scale(1.1); }
@@ -225,6 +231,71 @@ const starField = [
   { x: 88, y: 44, size: 3.3, duration: 6.3, delay: 1.2 }
 ]
 
+const holidayBackdropSvg = encodeURIComponent(`
+  <svg width="1600" height="900" viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#0b1a3d"/>
+        <stop offset="45%" stop-color="#0d2b66"/>
+        <stop offset="100%" stop-color="#0a1735"/>
+      </linearGradient>
+      <radialGradient id="moon" cx="76%" cy="16%" r="14%">
+        <stop offset="0%" stop-color="#cde7ff" stop-opacity="1"/>
+        <stop offset="60%" stop-color="#7fb7ff" stop-opacity="0.6"/>
+        <stop offset="100%" stop-color="#1a2e57" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="snowGlow" cx="50%" cy="85%" r="60%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55"/>
+        <stop offset="65%" stop-color="#d8ecff" stop-opacity="0.18"/>
+        <stop offset="100%" stop-color="#0a1735" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="tree" cx="50%" cy="0%" r="100%">
+        <stop offset="0%" stop-color="#1cb36b" stop-opacity="0.95"/>
+        <stop offset="70%" stop-color="#0f6b3f" stop-opacity="0.92"/>
+        <stop offset="100%" stop-color="#0d3b2a" stop-opacity="0.9"/>
+      </radialGradient>
+    </defs>
+    <rect width="1600" height="900" fill="url(#sky)"/>
+    <rect width="1600" height="900" fill="url(#moon)"/>
+    <rect width="1600" height="900" fill="url(#snowGlow)"/>
+    <g fill="#e3f5ff" opacity="0.82">
+      <circle cx="140" cy="160" r="1.8"/><circle cx="220" cy="120" r="2.2"/><circle cx="320" cy="90" r="1.6"/>
+      <circle cx="520" cy="110" r="2.5"/><circle cx="880" cy="140" r="1.4"/><circle cx="1080" cy="110" r="1.9"/>
+      <circle cx="1220" cy="180" r="2.4"/><circle cx="1350" cy="90" r="1.8"/><circle cx="1480" cy="130" r="2.1"/>
+    </g>
+    <g fill="#d1e4ff" opacity="0.35">
+      <ellipse cx="280" cy="820" rx="420" ry="180"/>
+      <ellipse cx="1120" cy="810" rx="480" ry="170"/>
+    </g>
+    <g opacity="0.78">
+      <path d="M1180 380 Q1220 360 1260 365 Q1320 380 1345 410 Q1320 395 1290 398 Q1240 402 1180 380 Z" fill="#fefefe"/>
+      <path d="M1180 380 Q1225 345 1280 332 Q1345 320 1410 340 Q1360 340 1298 355 Q1240 370 1180 380 Z" fill="#b0d8ff" opacity="0.62"/>
+    </g>
+    <g transform="translate(180,420)" opacity="0.94">
+      <path d="M140 260 L180 180 L220 260 Z" fill="#ffd166"/>
+      <path d="M100 320 L180 120 L260 320 Z" fill="url(#tree)"/>
+      <path d="M140 310 L180 210 L220 310 Z" fill="#0e8a4f" opacity="0.9"/>
+      <rect x="172" y="320" width="16" height="40" rx="4" fill="#7a4c31"/>
+      <circle cx="180" cy="210" r="6" fill="#ffe066"/>
+      <g fill="#ff6b6b" opacity="0.95">
+        <circle cx="180" cy="250" r="7"/><circle cx="150" cy="270" r="6"/><circle cx="210" cy="270" r="6"/>
+        <circle cx="168" cy="290" r="5"/><circle cx="192" cy="292" r="5"/>
+      </g>
+    </g>
+    <g transform="translate(1030,240)" opacity="0.88">
+      <path d="M0 120 Q60 110 120 120 Q180 135 210 150 Q180 145 120 152 Q60 158 0 150 Z" fill="#fefefe"/>
+      <path d="M0 120 Q60 100 120 95 Q180 90 240 105 Q200 105 140 112 Q80 118 0 120 Z" fill="#8bc7ff" opacity="0.55"/>
+    </g>
+    <g transform="translate(960,360)" fill="#d9edff" stroke="#b1d6ff" stroke-width="2" stroke-linecap="round" opacity="0.9">
+      <path d="M40 0 Q70 -10 100 0 L140 30 Q110 22 80 25 Q60 28 40 32 Z" fill="#fefefe"/>
+      <path d="M0 30 Q40 10 90 10 Q140 10 180 30" fill="none"/>
+      <path d="M50 40 Q80 30 110 40" fill="none"/>
+      <path d="M110 38 Q140 28 170 38" fill="none"/>
+    </g>
+  </svg>
+`)
+const holidayBackdropImage = `url("data:image/svg+xml,${holidayBackdropSvg}")`
+
 const HolidayGarland = () => {
   const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ffa8e2']
   return (
@@ -260,6 +331,52 @@ const HolidayGarland = () => {
 }
 
 let snowflakeId = 0
+
+const HolidayBackdrop = () => (
+  <Box
+    sx={{
+      position: 'fixed',
+      inset: 0,
+      pointerEvents: 'none',
+      zIndex: 0,
+      overflow: 'hidden'
+    }}
+  >
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: '-6%',
+        backgroundImage: `linear-gradient(120deg, rgba(10,20,48,0.45), rgba(10,14,28,0.2) 30%, rgba(5,10,26,0.55)), ${holidayBackdropImage}`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        filter: 'drop-shadow(0 20px 40px rgba(0,0,0,0.25))',
+        transformOrigin: 'center',
+        animation: `${panBackground} 28s ease-in-out infinite`
+      }}
+    />
+
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        background:
+          'radial-gradient(circle at 20% 20%, rgba(60,120,220,0.14), transparent 35%), radial-gradient(circle at 80% 10%, rgba(255,180,120,0.14), transparent 30%), linear-gradient(180deg, rgba(5,10,30,0.12), rgba(5,8,20,0.65) 60%, rgba(5,8,20,0.78))',
+        backdropFilter: 'blur(2px)',
+        mixBlendMode: 'screen'
+      }}
+    />
+
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        background:
+          'radial-gradient(circle at 50% 70%, rgba(255,255,255,0.12), transparent 45%), radial-gradient(circle at 10% 80%, rgba(255,255,255,0.22), transparent 35%)',
+        opacity: 0.9
+      }}
+    />
+  </Box>
+)
 
 const SnowCanvas = () => {
   type Snowflake = {
@@ -372,7 +489,9 @@ const FestiveScene = () => {
           position: 'absolute',
           inset: 0,
           background:
-            'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.12), transparent 40%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.12), transparent 45%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.12), transparent 40%), linear-gradient(180deg, #e8f6ff 0%, #e7f0ff 45%, #f8f3ff 100%)'
+            'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.18), transparent 42%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.16), transparent 46%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.2), transparent 42%), linear-gradient(180deg, rgba(232,246,255,0.52) 0%, rgba(231,240,255,0.35) 45%, rgba(248,243,255,0.35) 100%)',
+          opacity: 0.75,
+          mixBlendMode: 'screen'
         }}
       />
 
@@ -386,6 +505,7 @@ const FestiveScene = () => {
           background:
             'radial-gradient(circle at 20% 20%, rgba(15,163,177,0.16), transparent 35%), radial-gradient(circle at 80% 30%, rgba(255,107,154,0.18), transparent 32%), radial-gradient(circle at 45% 70%, rgba(139,92,246,0.18), transparent 40%)',
           filter: 'blur(3px)',
+          opacity: 0.65,
           animation: `${drift} 18s ease-in-out infinite`
         }}
       />
@@ -664,6 +784,7 @@ const FestiveScene = () => {
 
 const HolidayExperience = () => (
   <>
+    <HolidayBackdrop />
     <FestiveScene />
     <SnowCanvas />
   </>
