@@ -169,11 +169,13 @@ const HolidayLights = () => {
   return (
     <Box
       sx={{
-        position: 'absolute',
+        position: 'fixed',
         inset: 0,
         overflow: 'hidden',
         pointerEvents: 'none',
-        zIndex: 0
+        zIndex: -1,
+        background:
+          'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.12), transparent 40%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.12), transparent 45%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.12), transparent 40%), linear-gradient(180deg, #e8f6ff 0%, #e7f0ff 45%, #f8f3ff 100%)'
       }}
     >
       <Box
@@ -656,7 +658,8 @@ export function App() {
           <Box
             sx={{
               minHeight: '100vh',
-              backgroundImage: gradientBackground,
+              background: gradientBackground,
+              backgroundColor: (theme) => theme.palette.background.default,
               display: 'flex',
               alignItems: 'center',
               py: 8,
@@ -753,7 +756,8 @@ export function App() {
         <Box
           sx={{
             minHeight: '100vh',
-            backgroundImage: gradientBackground,
+            background: gradientBackground,
+            backgroundColor: (theme) => theme.palette.background.default,
             color: 'text.primary',
             position: 'relative',
             overflow: 'hidden'
