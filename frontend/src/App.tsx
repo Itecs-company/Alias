@@ -747,10 +747,9 @@ export function App() {
     )
   }
 
-  return (
-
+    return (
       <ThemeProvider theme={theme}>
-      <CssBaseline />
+        <CssBaseline />
         <Box
           sx={{
             minHeight: '100vh',
@@ -761,72 +760,73 @@ export function App() {
           }}
         >
           {themeMode === 'holiday' && <HolidayLights />}
-        <AppBar
-          position="sticky"
-        color="transparent"
-        elevation={0}
-        sx={{
-          backdropFilter: 'blur(14px)',
-          backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.8),
-          borderBottom: '1px solid',
-          borderColor: 'divider'
-        }}
-      >
-        <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 600 }}>
-            AliasFinder · интеллектуальный подбор производителя
-          </Typography>
-          <ToggleButtonGroup
-            value={activePage}
-            exclusive
-            size="small"
-            onChange={(_, value) => value && setActivePage(value)}
-            sx={{ mr: 2 }}
-          >
-            <ToggleButton value="dashboard" aria-label="Рабочая область">
-              <Bolt fontSize="small" />
-            </ToggleButton>
-            <ToggleButton value="logs" aria-label="Логи">
-              <ListAlt fontSize="small" />
-            </ToggleButton>
-          </ToggleButtonGroup>
-            <ToggleButtonGroup
-              value={themeMode}
-              exclusive
-              size="small"
-              onChange={handleThemeChange}
-              aria-label="Переключение тем"
-              sx={{ mr: 1 }}
+          <Box sx={{ position: 'relative', zIndex: 1 }}>
+            <AppBar
+              position="sticky"
+              color="transparent"
+              elevation={0}
+              sx={{
+                backdropFilter: 'blur(14px)',
+                backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.8),
+                borderBottom: '1px solid',
+                borderColor: 'divider'
+              }}
             >
-              {THEME_OPTIONS.map((option) => (
-                <ToggleButton key={option.value} value={option.value} aria-label={option.label}>
-                  {option.icon}
-                </ToggleButton>
-              ))}
-            </ToggleButtonGroup>
-            <Tooltip title="Режим отладки">
-              <IconButton color={debugMode ? 'secondary' : 'default'} onClick={() => setDebugMode((prev) => !prev)}>
-                <BugReport />
-            </IconButton>
-          </Tooltip>
-          <Divider orientation="vertical" flexItem sx={{ mx: 2, display: { xs: 'none', sm: 'block' }, opacity: 0.35 }} />
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Chip
-              label={isAdmin ? 'Администратор' : 'Оператор'}
-              color={isAdmin ? 'secondary' : 'default'}
-              variant={isAdmin ? 'filled' : 'outlined'}
-            />
-            <Typography variant="body2" sx={{ fontWeight: 500 }}>
-              {auth.username}
-            </Typography>
-            <Button color="inherit" size="small" startIcon={<Logout />} onClick={() => handleLogout()}>
-              Выйти
-            </Button>
-          </Stack>
-        </Toolbar>
-      </AppBar>
+              <Toolbar>
+                <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 600 }}>
+                  AliasFinder · интеллектуальный подбор производителя
+                </Typography>
+                <ToggleButtonGroup
+                  value={activePage}
+                  exclusive
+                  size="small"
+                  onChange={(_, value) => value && setActivePage(value)}
+                  sx={{ mr: 2 }}
+                >
+                  <ToggleButton value="dashboard" aria-label="Рабочая область">
+                    <Bolt fontSize="small" />
+                  </ToggleButton>
+                  <ToggleButton value="logs" aria-label="Логи">
+                    <ListAlt fontSize="small" />
+                  </ToggleButton>
+                </ToggleButtonGroup>
+                <ToggleButtonGroup
+                  value={themeMode}
+                  exclusive
+                  size="small"
+                  onChange={handleThemeChange}
+                  aria-label="Переключение тем"
+                  sx={{ mr: 1 }}
+                >
+                  {THEME_OPTIONS.map((option) => (
+                    <ToggleButton key={option.value} value={option.value} aria-label={option.label}>
+                      {option.icon}
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+                <Tooltip title="Режим отладки">
+                  <IconButton color={debugMode ? 'secondary' : 'default'} onClick={() => setDebugMode((prev) => !prev)}>
+                    <BugReport />
+                  </IconButton>
+                </Tooltip>
+                <Divider orientation="vertical" flexItem sx={{ mx: 2, display: { xs: 'none', sm: 'block' }, opacity: 0.35 }} />
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Chip
+                    label={isAdmin ? 'Администратор' : 'Оператор'}
+                    color={isAdmin ? 'secondary' : 'default'}
+                    variant={isAdmin ? 'filled' : 'outlined'}
+                  />
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                    {auth.username}
+                  </Typography>
+                  <Button color="inherit" size="small" startIcon={<Logout />} onClick={() => handleLogout()}>
+                    Выйти
+                  </Button>
+                </Stack>
+              </Toolbar>
+            </AppBar>
 
-      <Container maxWidth="xl" sx={{ pt: { xs: 10, md: 14 }, pb: 8 }}>
+            <Container maxWidth="xl" sx={{ pt: { xs: 10, md: 14 }, pb: 8 }}>
         {activePage === 'dashboard' ? (
           <Stack spacing={4}>
           <Paper
@@ -1498,14 +1498,15 @@ export function App() {
             </Paper>
           </Stack>
         )}
-      </Container>
-    </Box>
-    <Snackbar
-      open={Boolean(snackbar)}
-      message={snackbar}
-      autoHideDuration={4000}
-      onClose={() => setSnackbar(null)}
-    />
-  </ThemeProvider>
-)
+          </Container>
+        </Box>
+      </Box>
+      <Snackbar
+        open={Boolean(snackbar)}
+        message={snackbar}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar(null)}
+      />
+    </ThemeProvider>
+  )
 }
