@@ -73,6 +73,12 @@ NOISY_PHRASES = (
     "cloudflare",
     "human verification",
     "are you a robot",
+    "unusual traffic",
+    "checking your browser",
+    "security check",
+    "press and hold",
+    "enable javascript",
+    "checking if the site connection is secure",
 )
 
 STOPWORDS = {
@@ -85,6 +91,12 @@ STOPWORDS = {
     "the",
     "and",
     "this",
+    "robot",
+    "traffic",
+    "secure",
+    "security",
+    "blocked",
+    "check",
 }
 
 KEYWORD_HINTS = (
@@ -247,6 +259,10 @@ class PartSearchEngine:
     def _guess_manufacturer_from_text(
         self, text: str, part: PartBase, url: str
     ) -> tuple[str, str | None, float, str] | None:
+        lowered_text = text.lower()
+        if any(marker in lowered_text for marker in NOISY_PHRASES):
+            return None
+
         domain_manufacturer = self._manufacturer_from_domain(url)
         if domain_manufacturer:
             alias = self._alias_if_similar(part, domain_manufacturer)
@@ -307,6 +323,10 @@ class PartSearchEngine:
             ]
             filtered_tokens = [t for t in tokens if t.lower() not in STOPWORDS]
             if not filtered_tokens:
+                continue
+            if all(t.lower() in STOPWORDS for t in tokens):
+                continue
+            if any(bad in " ".join(filtered_tokens).lower() for bad in ("robot", "captcha", "verify", "traffic")):
                 continue
             if tokens:
                 manufacturer_names.append(" ".join(filtered_tokens[:3]))
