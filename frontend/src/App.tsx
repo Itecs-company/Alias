@@ -189,6 +189,42 @@ const floatBob = keyframes`
   100% { transform: translateY(0); }
 `
 
+const starPulse = keyframes`
+  0% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 0.95; transform: scale(1.1); }
+  100% { opacity: 0.35; transform: scale(0.85); }
+`
+
+const shootingStar = keyframes`
+  0% { opacity: 0; transform: translate3d(120%, -40%, 0) rotate(-18deg); }
+  10% { opacity: 0.9; }
+  40% { opacity: 1; transform: translate3d(-10%, 40%, 0) rotate(-18deg); }
+  60% { opacity: 0; transform: translate3d(-30%, 60%, 0) rotate(-18deg); }
+  100% { opacity: 0; transform: translate3d(-60%, 90%, 0) rotate(-18deg); }
+`
+
+const auroraFlow = keyframes`
+  0% { background-position: 0% 50%; opacity: 0.18; }
+  50% { background-position: 100% 50%; opacity: 0.36; }
+  100% { background-position: 0% 50%; opacity: 0.22; }
+`
+
+const starField = [
+  { x: 6, y: 12, size: 3, duration: 5.6, delay: 0.3 },
+  { x: 18, y: 18, size: 2.5, duration: 6.2, delay: 1.1 },
+  { x: 32, y: 10, size: 2.2, duration: 7.4, delay: 0.6 },
+  { x: 44, y: 22, size: 3.2, duration: 5.9, delay: 1.4 },
+  { x: 58, y: 14, size: 2.8, duration: 7.1, delay: 0.8 },
+  { x: 72, y: 16, size: 3, duration: 6.4, delay: 1.6 },
+  { x: 86, y: 12, size: 2.4, duration: 7.8, delay: 0.5 },
+  { x: 12, y: 36, size: 2.6, duration: 6.7, delay: 1.9 },
+  { x: 28, y: 42, size: 3.4, duration: 6.1, delay: 0.9 },
+  { x: 46, y: 34, size: 2.2, duration: 7.2, delay: 1.3 },
+  { x: 62, y: 40, size: 3.1, duration: 5.7, delay: 0.7 },
+  { x: 76, y: 36, size: 2.5, duration: 6.9, delay: 1.5 },
+  { x: 88, y: 44, size: 3.3, duration: 6.3, delay: 1.2 }
+]
+
 const HolidayGarland = () => {
   const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ffa8e2']
   return (
@@ -633,6 +669,79 @@ const HolidayExperience = () => (
   </>
 )
 
+const DarkStarrySky = () => (
+  <Box
+    sx={{
+      position: 'absolute',
+      inset: 0,
+      overflow: 'hidden',
+      pointerEvents: 'none',
+      zIndex: 0,
+      mixBlendMode: 'screen'
+    }}
+  >
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: '-20% -10% 40% -10%',
+          background: `
+            radial-gradient(circle at 20% 20%, rgba(82,140,255,0.25), transparent 45%),
+            radial-gradient(circle at 80% 15%, rgba(121,92,255,0.18), transparent 45%),
+            radial-gradient(circle at 45% 60%, rgba(66,186,227,0.2), transparent 50%)
+          `,
+          filter: 'blur(38px)',
+          animation: `${auroraFlow} 22s ease-in-out infinite`
+        }}
+      />
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        background: 'linear-gradient(180deg, rgba(5,9,15,0) 0%, rgba(5,9,15,0.6) 45%, rgba(5,9,15,0.9) 80%)'
+      }}
+    />
+    {starField.map((star, index) => (
+      <Box
+        key={`${star.x}-${star.y}-${index}`}
+        sx={{
+          position: 'absolute',
+          top: `${star.y}%`,
+          left: `${star.x}%`,
+          width: star.size,
+          height: star.size,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, #e5f2ff 0%, #8fc7ff 40%, rgba(143,199,255,0.4) 70%, transparent 100%)',
+          boxShadow: '0 0 12px rgba(143,199,255,0.9)',
+          animation: `${starPulse} ${star.duration}s ease-in-out ${star.delay}s infinite`
+        }}
+      />
+    ))}
+    {[0, 1, 2].map((index) => (
+      <Box
+        key={`shooting-${index}`}
+        sx={{
+          position: 'absolute',
+          top: `${10 + index * 24}%`,
+          right: '-40%',
+          width: 220,
+          height: 2,
+          background: `
+            linear-gradient(
+              90deg,
+              rgba(255, 255, 255, 0) 0%,
+              rgba(173, 210, 255, 0.9) 45%,
+              rgba(91, 167, 255, 0.95) 65%,
+              rgba(255, 255, 255, 0) 100%
+            )
+          `,
+          filter: 'drop-shadow(0 0 6px rgba(120,180,255,0.75))',
+          animation: `${shootingStar} 9s ease-in-out ${index * 2.8}s infinite`
+        }}
+      />
+    ))}
+  </Box>
+)
+
 export function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     if (typeof window === 'undefined') return 'light'
@@ -1071,6 +1180,7 @@ export function App() {
             }}
           >
             {themeMode === 'holiday' && <HolidayExperience />}
+            {themeMode === 'dark' && <DarkStarrySky />}
             <Container maxWidth="sm" sx={{ position: 'relative', zIndex: 1 }}>
               <Paper
                 elevation={12}
@@ -1167,6 +1277,7 @@ export function App() {
           }}
         >
           {themeMode === 'holiday' && <HolidayExperience />}
+          {themeMode === 'dark' && <DarkStarrySky />}
           <Box sx={{ position: 'relative', zIndex: 1 }}>
             <AppBar
               position="sticky"
