@@ -43,6 +43,7 @@ DOMAIN_MANUFACTURER_HINTS: dict[str, str] = {
     "fairchildsemi.com": "Fairchild Semiconductor",
     "rohm.com": "ROHM Semiconductor",
     "semiconductor.samsung.com": "Samsung Semiconductor",
+    "samsung.com": "Samsung",
     "semtech.com": "Semtech",
 }
 
@@ -62,8 +63,29 @@ KNOWN_MANUFACTURERS: list[str] = [
     "Broadcom",
     "ROHM Semiconductor",
     "Semtech",
+    "Samsung",
     "Samsung Semiconductor",
 ]
+
+NOISY_PHRASES = (
+    "verify you are",
+    "captcha",
+    "cloudflare",
+    "human verification",
+    "are you a robot",
+)
+
+STOPWORDS = {
+    "verify",
+    "you",
+    "are",
+    "please",
+    "continue",
+    "with",
+    "the",
+    "and",
+    "this",
+}
 
 KEYWORD_HINTS = (
     "datasheet",
@@ -247,19 +269,34 @@ class PartSearchEngine:
             )
 
         lines = text.splitlines()
-        candidates = [line for line in lines if part.part_number.lower() in line.lower()]
+        candidates = [
+            line
+            for line in lines
+            if part.part_number.lower() in line.lower()
+            and not any(phrase in line.lower() for phrase in NOISY_PHRASES)
+        ]
         if not candidates and part.manufacturer_hint:
-            candidates = [line for line in lines if part.manufacturer_hint.lower() in line.lower()]
+            candidates = [
+                line
+                for line in lines
+                if part.manufacturer_hint.lower() in line.lower()
+                and not any(phrase in line.lower() for phrase in NOISY_PHRASES)
+            ]
         if not candidates:
             keyword_lines = [
                 line
                 for line in lines
                 if any(keyword in line.lower() for keyword in KEYWORD_HINTS)
+                and not any(phrase in line.lower() for phrase in NOISY_PHRASES)
             ]
             if keyword_lines:
                 candidates = keyword_lines[:20]
         if not candidates:
-            candidates = lines[:20]
+            candidates = [
+                line
+                for line in lines[:20]
+                if not any(phrase in line.lower() for phrase in NOISY_PHRASES)
+            ]
 
         manufacturer_names: list[str] = []
         for line in candidates:
@@ -268,8 +305,11 @@ class PartSearchEngine:
                 for token in line.split()
                 if token.isalpha() and len(token) > 2
             ]
+            filtered_tokens = [t for t in tokens if t.lower() not in STOPWORDS]
+            if not filtered_tokens:
+                continue
             if tokens:
-                manufacturer_names.append(" ".join(tokens[:3]))
+                manufacturer_names.append(" ".join(filtered_tokens[:3]))
         if not manufacturer_names:
             return None
 
