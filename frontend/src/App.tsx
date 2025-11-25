@@ -164,58 +164,198 @@ const garlandSwing = keyframes`
   100% { transform: translateY(0) }
 `
 
-const HolidayLights = () => {
-  const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff']
+const colorPulse = keyframes`
+  0% { filter: hue-rotate(0deg) brightness(1); }
+  50% { filter: hue-rotate(18deg) brightness(1.35); }
+  100% { filter: hue-rotate(0deg) brightness(1); }
+`
+
+const snowfall = keyframes`
+  0% { transform: translate3d(0, -12vh, 0); }
+  100% { transform: translate3d(var(--drift, 0px), 110vh, 0); }
+`
+
+const gallop = keyframes`
+  0% { transform: translateX(0) translateY(0); }
+  25% { transform: translateX(6px) translateY(-3px); }
+  50% { transform: translateX(12px) translateY(0); }
+  75% { transform: translateX(18px) translateY(-2px); }
+  100% { transform: translateX(24px) translateY(0); }
+`
+
+const floatBob = keyframes`
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+  100% { transform: translateY(0); }
+`
+
+const HolidayGarland = () => {
+  const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ffa8e2']
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        top: 12,
+        left: 0,
+        right: 0,
+        display: 'flex',
+        justifyContent: 'space-evenly',
+        px: 4,
+        zIndex: 2,
+        animation: `${garlandSwing} 6s ease-in-out infinite`
+      }}
+    >
+      {Array.from({ length: 32 }).map((_, index) => (
+        <Box
+          key={index}
+          sx={{
+            width: 13,
+            height: 13,
+            borderRadius: '50%',
+            background: palette[index % palette.length],
+            boxShadow: `0 0 14px ${palette[index % palette.length]}`,
+            animation: `${twinkle} 2.4s ease-in-out infinite, ${colorPulse} 4.8s linear infinite`,
+            animationDelay: `${index * 60}ms`
+          }}
+        />
+      ))}
+    </Box>
+  )
+}
+
+let snowflakeId = 0
+
+const SnowCanvas = () => {
+  type Snowflake = {
+    id: number
+    left: number
+    size: number
+    duration: number
+    delay: number
+    opacity: number
+    drift: number
+    band: number
+  }
+
+  const createSnowflake = (): Snowflake => ({
+    id: snowflakeId++,
+    left: Math.random(),
+    size: 3 + Math.random() * 5,
+    duration: 8 + Math.random() * 12,
+    delay: -Math.random() * 12,
+    opacity: 0.45 + Math.random() * 0.4,
+    drift: (Math.random() - 0.5) * 18,
+    band: Math.random()
+  })
+
+  const [flakes, setFlakes] = useState<Snowflake[]>(() => Array.from({ length: 90 }, createSnowflake))
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setFlakes((prev) => (prev.length < 200 ? [...prev, createSnowflake()] : prev))
+    }, 900)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const x = event.clientX / window.innerWidth
+      const y = event.clientY / window.innerHeight
+      setFlakes((prev) =>
+        prev.filter((flake) => Math.abs(flake.left - x) > 0.08 || Math.abs(flake.band - y) > 0.12)
+      )
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => window.removeEventListener('mousemove', handleMouseMove)
+  }, [])
+
   return (
     <Box
       sx={{
         position: 'fixed',
         inset: 0,
-        overflow: 'hidden',
         pointerEvents: 'none',
-        zIndex: -1,
-        background:
-          'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.12), transparent 40%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.12), transparent 45%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.12), transparent 40%), linear-gradient(180deg, #e8f6ff 0%, #e7f0ff 45%, #f8f3ff 100%)'
+        zIndex: 1,
+        overflow: 'hidden'
+      }}
+    >
+      {flakes.map((flake) => (
+        <Box
+          key={flake.id}
+          sx={{
+            position: 'absolute',
+            left: `${flake.left * 100}%`,
+            top: '-12vh',
+            width: flake.size,
+            height: flake.size,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(255,255,255,0.68))',
+            boxShadow: '0 0 10px rgba(255,255,255,0.8)',
+            opacity: flake.opacity,
+            animation: `${snowfall} ${flake.duration}s linear infinite`,
+            animationDelay: `${flake.delay}s`,
+            '--drift': `${flake.drift}px`
+          }}
+        />
+      ))}
+    </Box>
+  )
+}
+
+const FestiveScene = () => {
+  const ornaments = useMemo(
+    () =>
+      Array.from({ length: 12 }).map((_, index) => ({
+        left: 26 + Math.random() * 18,
+        top: 18 + Math.random() * 48,
+        color: ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff'][index % 5]
+      })),
+    []
+  )
+
+  const gnomes = useMemo(
+    () => [
+      { left: '8%', delay: 0 },
+      { left: '18%', delay: 1.2 },
+      { left: '27%', delay: 2.4 }
+    ],
+    []
+  )
+
+  return (
+    <Box
+      sx={{
+        position: 'fixed',
+        inset: 0,
+        pointerEvents: 'none',
+        zIndex: 0
       }}
     >
       <Box
         sx={{
           position: 'absolute',
-          top: 12,
-          left: 0,
-          right: 0,
-          display: 'flex',
-          justifyContent: 'space-evenly',
-          px: 4,
-          zIndex: 1,
-          animation: `${garlandSwing} 6s ease-in-out infinite`
+          inset: 0,
+          background:
+            'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.12), transparent 40%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.12), transparent 45%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.12), transparent 40%), linear-gradient(180deg, #e8f6ff 0%, #e7f0ff 45%, #f8f3ff 100%)'
         }}
-      >
-        {Array.from({ length: 28 }).map((_, index) => (
-          <Box
-            key={index}
-            sx={{
-              width: 12,
-              height: 12,
-              borderRadius: '50%',
-              background: palette[index % palette.length],
-              boxShadow: `0 0 12px ${palette[index % palette.length]}`,
-              animation: `${twinkle} 2.6s ease-in-out infinite`,
-              animationDelay: `${index * 70}ms`
-            }}
-          />
-        ))}
-      </Box>
+      />
+
       <Box
         sx={{
           position: 'absolute',
-          inset: '-20% -30% 0 -30%',
+          left: '-15%',
+          right: '-15%',
+          bottom: -30,
+          height: 240,
           background:
             'radial-gradient(circle at 20% 20%, rgba(15,163,177,0.16), transparent 35%), radial-gradient(circle at 80% 30%, rgba(255,107,154,0.18), transparent 32%), radial-gradient(circle at 45% 70%, rgba(139,92,246,0.18), transparent 40%)',
-          filter: 'blur(2px)',
+          filter: 'blur(3px)',
           animation: `${drift} 18s ease-in-out infinite`
         }}
       />
+
+      <HolidayGarland />
+
       <Box
         sx={{
           position: 'absolute',
@@ -226,9 +366,272 @@ const HolidayLights = () => {
           animation: `${glowwave} 8s ease-in-out infinite`
         }}
       />
+
+      <Box
+        sx={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 180,
+          background: 'linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,0.86))',
+          backdropFilter: 'blur(6px)',
+          overflow: 'hidden'
+        }}
+      >
+        <Box
+          sx={{
+            position: 'absolute',
+            left: '52%',
+            bottom: 20,
+            width: 0,
+            height: 0,
+            borderLeft: '70px solid transparent',
+            borderRight: '70px solid transparent',
+            borderBottom: '140px solid #2f9e44',
+            filter: 'drop-shadow(0 16px 16px rgba(0,0,0,0.08))',
+            transform: 'translateX(-50%)'
+          }}
+        />
+        <Box
+          sx={{
+            position: 'absolute',
+            left: '52%',
+            bottom: 150,
+            width: 14,
+            height: 14,
+            background: 'linear-gradient(135deg, #ffd166, #ffa94d)',
+            clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)',
+            transform: 'translateX(-50%)',
+            boxShadow: '0 0 12px rgba(255,209,102,0.8)'
+          }}
+        />
+        <Box
+          sx={{
+            position: 'absolute',
+            left: '52%',
+            bottom: 30,
+            width: 24,
+            height: 32,
+            background: '#874d30',
+            borderRadius: 8,
+            transform: 'translateX(-50%)',
+            boxShadow: '0 8px 12px rgba(0,0,0,0.12)'
+          }}
+        />
+        {ornaments.map((ornament, index) => (
+          <Box
+            key={index}
+            sx={{
+              position: 'absolute',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: ornament.color,
+              left: `${ornament.left}%`,
+              bottom: `${ornament.top}px`,
+              boxShadow: `0 0 8px ${ornament.color}`,
+              animation: `${twinkle} 3.4s ease-in-out infinite`,
+              animationDelay: `${index * 90}ms`
+            }}
+          />
+        ))}
+
+        <Box
+          sx={{
+            position: 'absolute',
+            right: '12%',
+            bottom: 26,
+            width: 120,
+            height: 70,
+            borderRadius: '40% 40% 38% 50%',
+            background: 'linear-gradient(135deg, #c68e59, #9c6b3f)',
+            boxShadow: '0 10px 18px rgba(0,0,0,0.18)',
+            animation: `${gallop} 2.4s ease-in-out infinite`,
+            transformOrigin: 'left bottom'
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              width: 52,
+              height: 42,
+              background: 'linear-gradient(135deg, #c68e59, #d0a070)',
+              borderRadius: '45% 45% 40% 40%',
+              top: -26,
+              right: 14,
+              transform: 'rotate(-6deg)',
+              boxShadow: '0 6px 12px rgba(0,0,0,0.12)'
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              width: 10,
+              height: 26,
+              background: '#8b5a2b',
+              borderRadius: '4px',
+              bottom: -10,
+              left: 18,
+              boxShadow: '14px 4px 0 0 #8b5a2b, 46px 2px 0 0 #8b5a2b'
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              width: 8,
+              height: 18,
+              background: '#8b5a2b',
+              borderRadius: '4px',
+              bottom: -6,
+              right: 18,
+              boxShadow: '14px -2px 0 0 #8b5a2b'
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              width: 10,
+              height: 12,
+              background: '#f2d0a4',
+              borderRadius: '50%',
+              top: -12,
+              right: 0,
+              boxShadow: '0 0 12px rgba(255,255,255,0.4)'
+            }}
+          />
+        </Box>
+
+        {gnomes.map((gnome, index) => (
+          <Box
+            key={index}
+            sx={{
+              position: 'absolute',
+              width: 74,
+              height: 140,
+              left: gnome.left,
+              bottom: 6,
+              transformOrigin: 'center bottom',
+              animation: `${floatBob} 6s ease-in-out infinite`,
+              animationDelay: `${gnome.delay}s`
+            }}
+          >
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                left: '50%',
+                width: 80,
+                height: 80,
+                background: 'linear-gradient(135deg, #9c6b3f, #c68e59)',
+                borderRadius: '50% 50% 40% 40%',
+                transform: 'translateX(-50%) rotate(-4deg)',
+                boxShadow: '0 12px 24px rgba(0,0,0,0.18)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 62,
+                left: '50%',
+                width: 76,
+                height: 64,
+                background: 'linear-gradient(135deg, #e63946, #ff6b6b)',
+                clipPath: 'polygon(50% 0%, 100% 100%, 0% 100%)',
+                transform: 'translateX(-50%)',
+                boxShadow: '0 16px 28px rgba(0,0,0,0.14)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 72,
+                left: '50%',
+                width: 62,
+                height: 70,
+                background: 'linear-gradient(135deg, #f1f3f5, #dee2e6)',
+                borderRadius: '0 0 22px 22px',
+                transform: 'translateX(-50%)',
+                boxShadow: '0 8px 16px rgba(0,0,0,0.12)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 98,
+                left: '50%',
+                width: 18,
+                height: 18,
+                background: '#ffd166',
+                borderRadius: '50%',
+                transform: 'translateX(-50%)',
+                boxShadow: '0 0 12px rgba(255,209,102,0.8)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 46,
+                left: '50%',
+                width: 42,
+                height: 32,
+                background: 'linear-gradient(135deg, #f8e0c2, #f3caa0)',
+                borderRadius: '40% 40% 34% 34%',
+                transform: 'translateX(-50%)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 58,
+                left: '50%',
+                width: 10,
+                height: 10,
+                background: '#f08080',
+                borderRadius: '50%',
+                transform: 'translateX(-50%)',
+                boxShadow: '-12px 2px 0 0 #f08080, 12px 2px 0 0 #f08080'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 86,
+                left: '50%',
+                width: 16,
+                height: 20,
+                background: '#ffffff',
+                borderRadius: '40% 40% 50% 50%',
+                transform: 'translateX(-50%)',
+                boxShadow: '0 10px 12px rgba(0,0,0,0.12)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                bottom: 6,
+                left: '50%',
+                width: 52,
+                height: 12,
+                background: 'linear-gradient(135deg, #a5d8ff, #d0ebff)',
+                borderRadius: 12,
+                transform: 'translateX(-50%)',
+                boxShadow: '0 12px 16px rgba(0,0,0,0.16)'
+              }}
+            />
+          </Box>
+        ))}
+      </Box>
     </Box>
   )
 }
+
+const HolidayExperience = () => (
+  <>
+    <FestiveScene />
+    <SnowCanvas />
+  </>
+)
 
 export function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
@@ -667,7 +1070,7 @@ export function App() {
               overflow: 'hidden'
             }}
           >
-            {themeMode === 'holiday' && <HolidayLights />}
+            {themeMode === 'holiday' && <HolidayExperience />}
             <Container maxWidth="sm" sx={{ position: 'relative', zIndex: 1 }}>
               <Paper
                 elevation={12}
@@ -763,7 +1166,7 @@ export function App() {
             overflow: 'hidden'
           }}
         >
-          {themeMode === 'holiday' && <HolidayLights />}
+          {themeMode === 'holiday' && <HolidayExperience />}
           <Box sx={{ position: 'relative', zIndex: 1 }}>
             <AppBar
               position="sticky"
