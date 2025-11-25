@@ -5,6 +5,7 @@ import {
   Avatar,
   Box,
   Button,
+  Checkbox,
   Chip,
   Container,
   CssBaseline,
@@ -31,6 +32,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material'
+import InputAdornment from '@mui/material/InputAdornment'
 import { ThemeProvider, alpha } from '@mui/material/styles'
 import {
   DarkMode,
@@ -44,6 +46,7 @@ import {
   Lock,
   Logout,
   AcUnit,
+  Factory,
   DeleteForever,
   VisibilityOff,
   Visibility,
@@ -164,58 +167,354 @@ const garlandSwing = keyframes`
   100% { transform: translateY(0) }
 `
 
-const HolidayLights = () => {
-  const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff']
+const colorPulse = keyframes`
+  0% { filter: hue-rotate(0deg) brightness(1); }
+  50% { filter: hue-rotate(18deg) brightness(1.35); }
+  100% { filter: hue-rotate(0deg) brightness(1); }
+`
+
+const snowfall = keyframes`
+  0% { transform: translate3d(0, -12vh, 0); }
+  100% { transform: translate3d(var(--drift, 0px), 110vh, 0); }
+`
+
+const gallop = keyframes`
+  0% { transform: translateX(0) translateY(0); }
+  25% { transform: translateX(6px) translateY(-3px); }
+  50% { transform: translateX(12px) translateY(0); }
+  75% { transform: translateX(18px) translateY(-2px); }
+  100% { transform: translateX(24px) translateY(0); }
+`
+
+const floatBob = keyframes`
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+  100% { transform: translateY(0); }
+`
+
+const panBackground = keyframes`
+  0% { transform: scale(1.02) translate3d(0, 0, 0); filter: saturate(1.05); }
+  50% { transform: scale(1.08) translate3d(-2%, -1%, 0); filter: saturate(1.1); }
+  100% { transform: scale(1.02) translate3d(0, 0, 0); filter: saturate(1.05); }
+`
+
+const starPulse = keyframes`
+  0% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 0.95; transform: scale(1.1); }
+  100% { opacity: 0.35; transform: scale(0.85); }
+`
+
+const shootingStar = keyframes`
+  0% { opacity: 0; transform: translate3d(120%, -40%, 0) rotate(-18deg); }
+  10% { opacity: 0.9; }
+  40% { opacity: 1; transform: translate3d(-10%, 40%, 0) rotate(-18deg); }
+  60% { opacity: 0; transform: translate3d(-30%, 60%, 0) rotate(-18deg); }
+  100% { opacity: 0; transform: translate3d(-60%, 90%, 0) rotate(-18deg); }
+`
+
+const auroraFlow = keyframes`
+  0% { background-position: 0% 50%; opacity: 0.18; }
+  50% { background-position: 100% 50%; opacity: 0.36; }
+  100% { background-position: 0% 50%; opacity: 0.22; }
+`
+
+const starField = [
+  { x: 6, y: 12, size: 3, duration: 5.6, delay: 0.3 },
+  { x: 18, y: 18, size: 2.5, duration: 6.2, delay: 1.1 },
+  { x: 32, y: 10, size: 2.2, duration: 7.4, delay: 0.6 },
+  { x: 44, y: 22, size: 3.2, duration: 5.9, delay: 1.4 },
+  { x: 58, y: 14, size: 2.8, duration: 7.1, delay: 0.8 },
+  { x: 72, y: 16, size: 3, duration: 6.4, delay: 1.6 },
+  { x: 86, y: 12, size: 2.4, duration: 7.8, delay: 0.5 },
+  { x: 12, y: 36, size: 2.6, duration: 6.7, delay: 1.9 },
+  { x: 28, y: 42, size: 3.4, duration: 6.1, delay: 0.9 },
+  { x: 46, y: 34, size: 2.2, duration: 7.2, delay: 1.3 },
+  { x: 62, y: 40, size: 3.1, duration: 5.7, delay: 0.7 },
+  { x: 76, y: 36, size: 2.5, duration: 6.9, delay: 1.5 },
+  { x: 88, y: 44, size: 3.3, duration: 6.3, delay: 1.2 }
+]
+
+const holidayBackdropSvg = encodeURIComponent(`
+  <svg width="1600" height="900" viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#0b1a3d"/>
+        <stop offset="45%" stop-color="#0d2b66"/>
+        <stop offset="100%" stop-color="#0a1735"/>
+      </linearGradient>
+      <radialGradient id="moon" cx="76%" cy="16%" r="14%">
+        <stop offset="0%" stop-color="#cde7ff" stop-opacity="1"/>
+        <stop offset="60%" stop-color="#7fb7ff" stop-opacity="0.6"/>
+        <stop offset="100%" stop-color="#1a2e57" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="snowGlow" cx="50%" cy="85%" r="60%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55"/>
+        <stop offset="65%" stop-color="#d8ecff" stop-opacity="0.18"/>
+        <stop offset="100%" stop-color="#0a1735" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="tree" cx="50%" cy="0%" r="100%">
+        <stop offset="0%" stop-color="#1cb36b" stop-opacity="0.95"/>
+        <stop offset="70%" stop-color="#0f6b3f" stop-opacity="0.92"/>
+        <stop offset="100%" stop-color="#0d3b2a" stop-opacity="0.9"/>
+      </radialGradient>
+    </defs>
+    <rect width="1600" height="900" fill="url(#sky)"/>
+    <rect width="1600" height="900" fill="url(#moon)"/>
+    <rect width="1600" height="900" fill="url(#snowGlow)"/>
+    <g fill="#e3f5ff" opacity="0.82">
+      <circle cx="140" cy="160" r="1.8"/><circle cx="220" cy="120" r="2.2"/><circle cx="320" cy="90" r="1.6"/>
+      <circle cx="520" cy="110" r="2.5"/><circle cx="880" cy="140" r="1.4"/><circle cx="1080" cy="110" r="1.9"/>
+      <circle cx="1220" cy="180" r="2.4"/><circle cx="1350" cy="90" r="1.8"/><circle cx="1480" cy="130" r="2.1"/>
+    </g>
+    <g fill="#d1e4ff" opacity="0.35">
+      <ellipse cx="280" cy="820" rx="420" ry="180"/>
+      <ellipse cx="1120" cy="810" rx="480" ry="170"/>
+    </g>
+    <g opacity="0.78">
+      <path d="M1180 380 Q1220 360 1260 365 Q1320 380 1345 410 Q1320 395 1290 398 Q1240 402 1180 380 Z" fill="#fefefe"/>
+      <path d="M1180 380 Q1225 345 1280 332 Q1345 320 1410 340 Q1360 340 1298 355 Q1240 370 1180 380 Z" fill="#b0d8ff" opacity="0.62"/>
+    </g>
+    <g transform="translate(180,420)" opacity="0.94">
+      <path d="M140 260 L180 180 L220 260 Z" fill="#ffd166"/>
+      <path d="M100 320 L180 120 L260 320 Z" fill="url(#tree)"/>
+      <path d="M140 310 L180 210 L220 310 Z" fill="#0e8a4f" opacity="0.9"/>
+      <rect x="172" y="320" width="16" height="40" rx="4" fill="#7a4c31"/>
+      <circle cx="180" cy="210" r="6" fill="#ffe066"/>
+      <g fill="#ff6b6b" opacity="0.95">
+        <circle cx="180" cy="250" r="7"/><circle cx="150" cy="270" r="6"/><circle cx="210" cy="270" r="6"/>
+        <circle cx="168" cy="290" r="5"/><circle cx="192" cy="292" r="5"/>
+      </g>
+    </g>
+    <g transform="translate(1030,240)" opacity="0.88">
+      <path d="M0 120 Q60 110 120 120 Q180 135 210 150 Q180 145 120 152 Q60 158 0 150 Z" fill="#fefefe"/>
+      <path d="M0 120 Q60 100 120 95 Q180 90 240 105 Q200 105 140 112 Q80 118 0 120 Z" fill="#8bc7ff" opacity="0.55"/>
+    </g>
+    <g transform="translate(960,360)" fill="#d9edff" stroke="#b1d6ff" stroke-width="2" stroke-linecap="round" opacity="0.9">
+      <path d="M40 0 Q70 -10 100 0 L140 30 Q110 22 80 25 Q60 28 40 32 Z" fill="#fefefe"/>
+      <path d="M0 30 Q40 10 90 10 Q140 10 180 30" fill="none"/>
+      <path d="M50 40 Q80 30 110 40" fill="none"/>
+      <path d="M110 38 Q140 28 170 38" fill="none"/>
+    </g>
+  </svg>
+`)
+const holidayBackdropImage = `url("data:image/svg+xml,${holidayBackdropSvg}")`
+
+const HolidayGarland = () => {
+  const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ffa8e2']
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        top: 12,
+        left: 0,
+        right: 0,
+        display: 'flex',
+        justifyContent: 'space-evenly',
+        px: 4,
+        zIndex: 2,
+        animation: `${garlandSwing} 6s ease-in-out infinite`
+      }}
+    >
+      {Array.from({ length: 32 }).map((_, index) => (
+        <Box
+          key={index}
+          sx={{
+            width: 13,
+            height: 13,
+            borderRadius: '50%',
+            background: palette[index % palette.length],
+            boxShadow: `0 0 14px ${palette[index % palette.length]}`,
+            animation: `${twinkle} 2.4s ease-in-out infinite, ${colorPulse} 4.8s linear infinite`,
+            animationDelay: `${index * 60}ms`
+          }}
+        />
+      ))}
+    </Box>
+  )
+}
+
+let snowflakeId = 0
+
+const HolidayBackdrop = () => (
+  <Box
+    sx={{
+      position: 'fixed',
+      inset: 0,
+      pointerEvents: 'none',
+      zIndex: 0,
+      overflow: 'hidden'
+    }}
+  >
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: '-6%',
+        backgroundImage: `linear-gradient(120deg, rgba(10,20,48,0.45), rgba(10,14,28,0.2) 30%, rgba(5,10,26,0.55)), ${holidayBackdropImage}`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        filter: 'drop-shadow(0 20px 40px rgba(0,0,0,0.25))',
+        transformOrigin: 'center',
+        animation: `${panBackground} 28s ease-in-out infinite`
+      }}
+    />
+
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        background:
+          'radial-gradient(circle at 20% 20%, rgba(60,120,220,0.14), transparent 35%), radial-gradient(circle at 80% 10%, rgba(255,180,120,0.14), transparent 30%), linear-gradient(180deg, rgba(5,10,30,0.12), rgba(5,8,20,0.65) 60%, rgba(5,8,20,0.78))',
+        backdropFilter: 'blur(2px)',
+        mixBlendMode: 'screen'
+      }}
+    />
+
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        background:
+          'radial-gradient(circle at 50% 70%, rgba(255,255,255,0.12), transparent 45%), radial-gradient(circle at 10% 80%, rgba(255,255,255,0.22), transparent 35%)',
+        opacity: 0.9
+      }}
+    />
+  </Box>
+)
+
+const SnowCanvas = () => {
+  type Snowflake = {
+    id: number
+    left: number
+    size: number
+    duration: number
+    delay: number
+    opacity: number
+    drift: number
+    band: number
+  }
+
+  const createSnowflake = (): Snowflake => ({
+    id: snowflakeId++,
+    left: Math.random(),
+    size: 3 + Math.random() * 5,
+    duration: 8 + Math.random() * 12,
+    delay: -Math.random() * 12,
+    opacity: 0.45 + Math.random() * 0.4,
+    drift: (Math.random() - 0.5) * 18,
+    band: Math.random()
+  })
+
+  const [flakes, setFlakes] = useState<Snowflake[]>(() => Array.from({ length: 90 }, createSnowflake))
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setFlakes((prev) => (prev.length < 200 ? [...prev, createSnowflake()] : prev))
+    }, 900)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const x = event.clientX / window.innerWidth
+      const y = event.clientY / window.innerHeight
+      setFlakes((prev) =>
+        prev.filter((flake) => Math.abs(flake.left - x) > 0.08 || Math.abs(flake.band - y) > 0.12)
+      )
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => window.removeEventListener('mousemove', handleMouseMove)
+  }, [])
+
   return (
     <Box
       sx={{
         position: 'fixed',
         inset: 0,
-        overflow: 'hidden',
         pointerEvents: 'none',
-        zIndex: -1,
-        background:
-          'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.12), transparent 40%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.12), transparent 45%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.12), transparent 40%), linear-gradient(180deg, #e8f6ff 0%, #e7f0ff 45%, #f8f3ff 100%)'
+        zIndex: 1,
+        overflow: 'hidden'
+      }}
+    >
+      {flakes.map((flake) => (
+        <Box
+          key={flake.id}
+          sx={{
+            position: 'absolute',
+            left: `${flake.left * 100}%`,
+            top: '-12vh',
+            width: flake.size,
+            height: flake.size,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(255,255,255,0.68))',
+            boxShadow: '0 0 10px rgba(255,255,255,0.8)',
+            opacity: flake.opacity,
+            animation: `${snowfall} ${flake.duration}s linear infinite`,
+            animationDelay: `${flake.delay}s`,
+            '--drift': `${flake.drift}px`
+          }}
+        />
+      ))}
+    </Box>
+  )
+}
+
+const FestiveScene = () => {
+  const ornaments = useMemo(
+    () =>
+      Array.from({ length: 12 }).map((_, index) => ({
+        left: 26 + Math.random() * 18,
+        top: 18 + Math.random() * 48,
+        color: ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff'][index % 5]
+      })),
+    []
+  )
+
+  const gnomes = useMemo(
+    () => [
+      { left: '8%', delay: 0 },
+      { left: '18%', delay: 1.2 },
+      { left: '27%', delay: 2.4 }
+    ],
+    []
+  )
+
+  return (
+    <Box
+      sx={{
+        position: 'fixed',
+        inset: 0,
+        pointerEvents: 'none',
+        zIndex: 0
       }}
     >
       <Box
         sx={{
           position: 'absolute',
-          top: 12,
-          left: 0,
-          right: 0,
-          display: 'flex',
-          justifyContent: 'space-evenly',
-          px: 4,
-          zIndex: 1,
-          animation: `${garlandSwing} 6s ease-in-out infinite`
+          inset: 0,
+          background:
+            'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.18), transparent 42%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.16), transparent 46%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.2), transparent 42%), linear-gradient(180deg, rgba(232,246,255,0.52) 0%, rgba(231,240,255,0.35) 45%, rgba(248,243,255,0.35) 100%)',
+          opacity: 0.75,
+          mixBlendMode: 'screen'
         }}
-      >
-        {Array.from({ length: 28 }).map((_, index) => (
-          <Box
-            key={index}
-            sx={{
-              width: 12,
-              height: 12,
-              borderRadius: '50%',
-              background: palette[index % palette.length],
-              boxShadow: `0 0 12px ${palette[index % palette.length]}`,
-              animation: `${twinkle} 2.6s ease-in-out infinite`,
-              animationDelay: `${index * 70}ms`
-            }}
-          />
-        ))}
-      </Box>
+      />
+
       <Box
         sx={{
           position: 'absolute',
-          inset: '-20% -30% 0 -30%',
+          left: '-15%',
+          right: '-15%',
+          bottom: -30,
+          height: 240,
           background:
             'radial-gradient(circle at 20% 20%, rgba(15,163,177,0.16), transparent 35%), radial-gradient(circle at 80% 30%, rgba(255,107,154,0.18), transparent 32%), radial-gradient(circle at 45% 70%, rgba(139,92,246,0.18), transparent 40%)',
-          filter: 'blur(2px)',
+          filter: 'blur(3px)',
+          opacity: 0.65,
           animation: `${drift} 18s ease-in-out infinite`
         }}
       />
+
+      <HolidayGarland />
+
       <Box
         sx={{
           position: 'absolute',
@@ -226,9 +525,346 @@ const HolidayLights = () => {
           animation: `${glowwave} 8s ease-in-out infinite`
         }}
       />
+
+      <Box
+        sx={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 180,
+          background: 'linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,0.86))',
+          backdropFilter: 'blur(6px)',
+          overflow: 'hidden'
+        }}
+      >
+        <Box
+          sx={{
+            position: 'absolute',
+            left: '52%',
+            bottom: 20,
+            width: 0,
+            height: 0,
+            borderLeft: '70px solid transparent',
+            borderRight: '70px solid transparent',
+            borderBottom: '140px solid #2f9e44',
+            filter: 'drop-shadow(0 16px 16px rgba(0,0,0,0.08))',
+            transform: 'translateX(-50%)'
+          }}
+        />
+        <Box
+          sx={{
+            position: 'absolute',
+            left: '52%',
+            bottom: 150,
+            width: 14,
+            height: 14,
+            background: 'linear-gradient(135deg, #ffd166, #ffa94d)',
+            clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)',
+            transform: 'translateX(-50%)',
+            boxShadow: '0 0 12px rgba(255,209,102,0.8)'
+          }}
+        />
+        <Box
+          sx={{
+            position: 'absolute',
+            left: '52%',
+            bottom: 30,
+            width: 24,
+            height: 32,
+            background: '#874d30',
+            borderRadius: 8,
+            transform: 'translateX(-50%)',
+            boxShadow: '0 8px 12px rgba(0,0,0,0.12)'
+          }}
+        />
+        {ornaments.map((ornament, index) => (
+          <Box
+            key={index}
+            sx={{
+              position: 'absolute',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: ornament.color,
+              left: `${ornament.left}%`,
+              bottom: `${ornament.top}px`,
+              boxShadow: `0 0 8px ${ornament.color}`,
+              animation: `${twinkle} 3.4s ease-in-out infinite`,
+              animationDelay: `${index * 90}ms`
+            }}
+          />
+        ))}
+
+        <Box
+          sx={{
+            position: 'absolute',
+            right: '12%',
+            bottom: 26,
+            width: 120,
+            height: 70,
+            borderRadius: '40% 40% 38% 50%',
+            background: 'linear-gradient(135deg, #c68e59, #9c6b3f)',
+            boxShadow: '0 10px 18px rgba(0,0,0,0.18)',
+            animation: `${gallop} 2.4s ease-in-out infinite`,
+            transformOrigin: 'left bottom'
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              width: 52,
+              height: 42,
+              background: 'linear-gradient(135deg, #c68e59, #d0a070)',
+              borderRadius: '45% 45% 40% 40%',
+              top: -26,
+              right: 14,
+              transform: 'rotate(-6deg)',
+              boxShadow: '0 6px 12px rgba(0,0,0,0.12)'
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              width: 10,
+              height: 26,
+              background: '#8b5a2b',
+              borderRadius: '4px',
+              bottom: -10,
+              left: 18,
+              boxShadow: '14px 4px 0 0 #8b5a2b, 46px 2px 0 0 #8b5a2b'
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              width: 8,
+              height: 18,
+              background: '#8b5a2b',
+              borderRadius: '4px',
+              bottom: -6,
+              right: 18,
+              boxShadow: '14px -2px 0 0 #8b5a2b'
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              width: 10,
+              height: 12,
+              background: '#f2d0a4',
+              borderRadius: '50%',
+              top: -12,
+              right: 0,
+              boxShadow: '0 0 12px rgba(255,255,255,0.4)'
+            }}
+          />
+        </Box>
+
+        {gnomes.map((gnome, index) => (
+          <Box
+            key={index}
+            sx={{
+              position: 'absolute',
+              width: 74,
+              height: 140,
+              left: gnome.left,
+              bottom: 6,
+              transformOrigin: 'center bottom',
+              animation: `${floatBob} 6s ease-in-out infinite`,
+              animationDelay: `${gnome.delay}s`
+            }}
+          >
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                left: '50%',
+                width: 80,
+                height: 80,
+                background: 'linear-gradient(135deg, #9c6b3f, #c68e59)',
+                borderRadius: '50% 50% 40% 40%',
+                transform: 'translateX(-50%) rotate(-4deg)',
+                boxShadow: '0 12px 24px rgba(0,0,0,0.18)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 62,
+                left: '50%',
+                width: 76,
+                height: 64,
+                background: 'linear-gradient(135deg, #e63946, #ff6b6b)',
+                clipPath: 'polygon(50% 0%, 100% 100%, 0% 100%)',
+                transform: 'translateX(-50%)',
+                boxShadow: '0 16px 28px rgba(0,0,0,0.14)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 72,
+                left: '50%',
+                width: 62,
+                height: 70,
+                background: 'linear-gradient(135deg, #f1f3f5, #dee2e6)',
+                borderRadius: '0 0 22px 22px',
+                transform: 'translateX(-50%)',
+                boxShadow: '0 8px 16px rgba(0,0,0,0.12)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 98,
+                left: '50%',
+                width: 18,
+                height: 18,
+                background: '#ffd166',
+                borderRadius: '50%',
+                transform: 'translateX(-50%)',
+                boxShadow: '0 0 12px rgba(255,209,102,0.8)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 46,
+                left: '50%',
+                width: 42,
+                height: 32,
+                background: 'linear-gradient(135deg, #f8e0c2, #f3caa0)',
+                borderRadius: '40% 40% 34% 34%',
+                transform: 'translateX(-50%)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 58,
+                left: '50%',
+                width: 10,
+                height: 10,
+                background: '#f08080',
+                borderRadius: '50%',
+                transform: 'translateX(-50%)',
+                boxShadow: '-12px 2px 0 0 #f08080, 12px 2px 0 0 #f08080'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 86,
+                left: '50%',
+                width: 16,
+                height: 20,
+                background: '#ffffff',
+                borderRadius: '40% 40% 50% 50%',
+                transform: 'translateX(-50%)',
+                boxShadow: '0 10px 12px rgba(0,0,0,0.12)'
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                bottom: 6,
+                left: '50%',
+                width: 52,
+                height: 12,
+                background: 'linear-gradient(135deg, #a5d8ff, #d0ebff)',
+                borderRadius: 12,
+                transform: 'translateX(-50%)',
+                boxShadow: '0 12px 16px rgba(0,0,0,0.16)'
+              }}
+            />
+          </Box>
+        ))}
+      </Box>
     </Box>
   )
 }
+
+const HolidayExperience = () => (
+  <>
+    <HolidayBackdrop />
+    <FestiveScene />
+    <SnowCanvas />
+  </>
+)
+
+const DarkStarrySky = () => (
+  <Box
+    sx={{
+      position: 'absolute',
+      inset: 0,
+      overflow: 'hidden',
+      pointerEvents: 'none',
+      zIndex: 0,
+      mixBlendMode: 'screen'
+    }}
+  >
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: '-20% -10% 40% -10%',
+          background: `
+            radial-gradient(circle at 20% 20%, rgba(82,140,255,0.25), transparent 45%),
+            radial-gradient(circle at 80% 15%, rgba(121,92,255,0.18), transparent 45%),
+            radial-gradient(circle at 45% 60%, rgba(66,186,227,0.2), transparent 50%)
+          `,
+          filter: 'blur(38px)',
+          animation: `${auroraFlow} 22s ease-in-out infinite`
+        }}
+      />
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        background: 'linear-gradient(180deg, rgba(5,9,15,0) 0%, rgba(5,9,15,0.6) 45%, rgba(5,9,15,0.9) 80%)'
+      }}
+    />
+    {starField.map((star, index) => (
+      <Box
+        key={`${star.x}-${star.y}-${index}`}
+        sx={{
+          position: 'absolute',
+          top: `${star.y}%`,
+          left: `${star.x}%`,
+          width: star.size,
+          height: star.size,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, #e5f2ff 0%, #8fc7ff 40%, rgba(143,199,255,0.4) 70%, transparent 100%)',
+          boxShadow: '0 0 12px rgba(143,199,255,0.9)',
+          animation: `${starPulse} ${star.duration}s ease-in-out ${star.delay}s infinite`
+        }}
+      />
+    ))}
+    {[0, 1, 2].map((index) => (
+      <Box
+        key={`shooting-${index}`}
+        sx={{
+          position: 'absolute',
+          top: `${10 + index * 24}%`,
+          right: '-40%',
+          width: 220,
+          height: 2,
+          background: `
+            linear-gradient(
+              90deg,
+              rgba(255, 255, 255, 0) 0%,
+              rgba(173, 210, 255, 0.9) 45%,
+              rgba(91, 167, 255, 0.95) 65%,
+              rgba(255, 255, 255, 0) 100%
+            )
+          `,
+          filter: 'drop-shadow(0 0 6px rgba(120,180,255,0.75))',
+          animation: `${shootingStar} 9s ease-in-out ${index * 2.8}s infinite`
+        }}
+      />
+    ))}
+  </Box>
+)
 
 export function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
@@ -253,6 +889,20 @@ export function App() {
   const [historyFilter, setHistoryFilter] = useState('')
   const [historyHidden, setHistoryHidden] = useState(false)
   const [manufacturerFilter, setManufacturerFilter] = useState<'all' | 'found' | 'missing'>('all')
+  const [tableFilters, setTableFilters] = useState<{
+    article: string
+    manufacturer: string
+    alias: string
+    submitted: string
+    match: 'all' | 'matched' | 'mismatch' | 'pending' | 'none'
+  }>({
+    article: '',
+    manufacturer: '',
+    alias: '',
+    submitted: '',
+    match: 'all'
+  })
+  const [selectedRows, setSelectedRows] = useState<number[]>([])
   const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
   const [logs, setLogs] = useState<SearchLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
@@ -277,14 +927,35 @@ export function App() {
     }))
   }, [history])
   const filteredTableData = useMemo(() => {
+    const articleTerm = tableFilters.article.trim().toLowerCase()
+    const manufacturerTerm = tableFilters.manufacturer.trim().toLowerCase()
+    const aliasTerm = tableFilters.alias.trim().toLowerCase()
+    const submittedTerm = tableFilters.submitted.trim().toLowerCase()
     return tableData.filter((row) => {
       const isFound = row.manufacturer !== '—' && row.matchStatus !== 'mismatch'
       const isMissing = row.manufacturer === '—' || row.matchStatus === 'mismatch'
-      if (manufacturerFilter === 'found') return isFound
-      if (manufacturerFilter === 'missing') return isMissing
-      return true
+      if (manufacturerFilter === 'found' && !isFound) return false
+      if (manufacturerFilter === 'missing' && !isMissing) return false
+
+      const matchesArticle = row.article.toLowerCase().includes(articleTerm)
+      const matchesManufacturer = row.manufacturer.toLowerCase().includes(manufacturerTerm)
+      const matchesAlias = row.alias.toLowerCase().includes(aliasTerm)
+      const matchesSubmitted = row.submitted.toLowerCase().includes(submittedTerm)
+      const matchesMatchStatus = (() => {
+        if (tableFilters.match === 'all') return true
+        if (tableFilters.match === 'none') return row.matchStatus === null
+        return row.matchStatus === tableFilters.match
+      })()
+
+      return (
+        matchesArticle &&
+        matchesManufacturer &&
+        matchesAlias &&
+        matchesSubmitted &&
+        matchesMatchStatus
+      )
     })
-  }, [manufacturerFilter, tableData])
+  }, [manufacturerFilter, tableData, tableFilters])
   const filteredHistory = useMemo(() => {
     if (historyHidden) return []
     const term = historyFilter.trim().toLowerCase()
@@ -297,6 +968,9 @@ export function App() {
       )
     })
   }, [history, historyFilter, historyHidden])
+  useEffect(() => {
+    setSelectedRows((prev) => prev.filter((id) => filteredTableData.some((row) => row.id === id)))
+  }, [filteredTableData])
   const [snackbar, setSnackbar] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [stageProgress, setStageProgress] = useState<StageProgressEntry[]>(() =>
@@ -331,6 +1005,14 @@ export function App() {
     } finally {
       setLogsLoading(false)
     }
+  }
+
+  const handleSelectAllRows = (checked: boolean) => {
+    setSelectedRows(checked ? filteredTableData.map((row) => row.id) : [])
+  }
+
+  const handleToggleRowSelection = (id: number) => {
+    setSelectedRows((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]))
   }
 
   const handleDeletePartRow = async (id: number) => {
@@ -667,7 +1349,8 @@ export function App() {
               overflow: 'hidden'
             }}
           >
-            {themeMode === 'holiday' && <HolidayLights />}
+            {themeMode === 'holiday' && <HolidayExperience />}
+            {themeMode === 'dark' && <DarkStarrySky />}
             <Container maxWidth="sm" sx={{ position: 'relative', zIndex: 1 }}>
               <Paper
                 elevation={12}
@@ -763,7 +1446,8 @@ export function App() {
             overflow: 'hidden'
           }}
         >
-          {themeMode === 'holiday' && <HolidayLights />}
+          {themeMode === 'holiday' && <HolidayExperience />}
+          {themeMode === 'dark' && <DarkStarrySky />}
           <Box sx={{ position: 'relative', zIndex: 1 }}>
             <AppBar
               position="sticky"
@@ -1285,40 +1969,283 @@ export function App() {
               {filteredTableData.length === 0 ? (
                 <Typography color="text.secondary">Пока нет данных. Выполните поиск или импорт.</Typography>
               ) : (
-                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 420, borderRadius: 3 }}>
-                  <Table stickyHeader size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }} align="right">
-                          Действия
-                        </TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {filteredTableData.map((row) => (
-                        <TableRow key={row.key} hover>
-                          <TableCell>{row.article}</TableCell>
-                          <TableCell>{row.manufacturer}</TableCell>
-                          <TableCell>{row.alias}</TableCell>
-                          <TableCell>{row.submitted}</TableCell>
-                          <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
-                          <TableCell align="right">
-                            <Tooltip title="Удалить строку">
-                              <IconButton size="small" color="error" onClick={() => handleDeletePartRow(row.id)}>
-                                <DeleteForever fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
+                <Stack spacing={1.5}>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                    <Chip label={`Всего записей: ${tableData.length}`} size="small" color="default" />
+                    <Chip
+                      label={`Отфильтровано: ${filteredTableData.length}`}
+                      size="small"
+                      color="secondary"
+                      variant="outlined"
+                    />
+                    <Chip
+                      label={`Выбрано: ${selectedRows.length}`}
+                      size="small"
+                      color={selectedRows.length ? 'success' : 'default'}
+                      variant={selectedRows.length ? 'filled' : 'outlined'}
+                    />
+                  </Stack>
+
+                  <TableContainer
+                    component={Paper}
+                    variant="outlined"
+                    sx={{
+                      maxHeight: 520,
+                      borderRadius: 3,
+                      overflow: 'auto',
+                      borderColor: 'divider',
+                      backgroundImage:
+                        'linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.06) 40%, rgba(255,255,255,0.02) 100%)'
+                    }}
+                  >
+                    <Table stickyHeader size="small" sx={{ minWidth: 960 }}>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell padding="checkbox">
+                            <Checkbox
+                              color="primary"
+                              indeterminate={
+                                selectedRows.length > 0 && selectedRows.length < filteredTableData.length
+                              }
+                              checked={
+                                filteredTableData.length > 0 &&
+                                selectedRows.length === filteredTableData.length
+                              }
+                              onChange={(e) => handleSelectAllRows(e.target.checked)}
+                              inputProps={{ 'aria-label': 'Выбрать все строки' }}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Артикул</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Производитель</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Alias</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                            Заявленный производитель
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Статус</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Достоверность</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }} align="right">
+                            Действия
                           </TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                        <TableRow>
+                          <TableCell padding="checkbox">
+                            <Typography variant="caption" color="text.secondary">
+                              Фильтр
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="Например, QE75..."
+                              value={tableFilters.article}
+                              onChange={(e) =>
+                                setTableFilters((prev) => ({ ...prev, article: e.target.value }))
+                              }
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <Search fontSize="small" />
+                                  </InputAdornment>
+                                )
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="Найденный производитель"
+                              value={tableFilters.manufacturer}
+                              onChange={(e) =>
+                                setTableFilters((prev) => ({ ...prev, manufacturer: e.target.value }))
+                              }
+                                  InputProps={{
+                                    startAdornment: (
+                                      <InputAdornment position="start">
+                                        <Factory fontSize="small" />
+                                      </InputAdornment>
+                                    )
+                                  }}
+                                />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="Alias"
+                              value={tableFilters.alias}
+                              onChange={(e) => setTableFilters((prev) => ({ ...prev, alias: e.target.value }))}
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <Bolt fontSize="small" />
+                                  </InputAdornment>
+                                )
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="Из заявки"
+                              value={tableFilters.submitted}
+                              onChange={(e) =>
+                                setTableFilters((prev) => ({ ...prev, submitted: e.target.value }))
+                              }
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <ListAlt fontSize="small" />
+                                  </InputAdornment>
+                                )
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              select
+                              label="Статус"
+                              SelectProps={{ native: true }}
+                              value={tableFilters.match}
+                              onChange={(e) =>
+                                setTableFilters((prev) => ({ ...prev, match: e.target.value as typeof prev.match }))
+                              }
+                            >
+                              <option value="all">Все</option>
+                              <option value="matched">Совпадает</option>
+                              <option value="mismatch">Расхождение</option>
+                              <option value="pending">Ожидает</option>
+                              <option value="none">Нет данных</option>
+                            </TextField>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption" color="text.secondary">
+                              Поиск не требуется
+                            </Typography>
+                          </TableCell>
+                          <TableCell />
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filteredTableData.map((row) => {
+                          const isSelected = selectedRows.includes(row.id)
+                          const confidenceValue = row.matchConfidence ? row.matchConfidence * 100 : null
+                          return (
+                            <TableRow
+                              key={row.key}
+                              hover
+                              selected={isSelected}
+                              sx={{
+                                '&:nth-of-type(even)': { backgroundColor: 'action.hover' },
+                                transition: 'background-color 150ms ease',
+                                backgroundColor: (theme) => {
+                                  if (row.matchStatus === 'mismatch') {
+                                    return alpha(theme.palette.error.light, 0.12)
+                                  }
+                                  if (row.matchStatus === 'pending') {
+                                    return alpha(theme.palette.warning.light, 0.12)
+                                  }
+                                  return undefined
+                                }
+                              }}
+                            >
+                              <TableCell padding="checkbox">
+                                <Checkbox
+                                  color="primary"
+                                  checked={isSelected}
+                                  onChange={() => handleToggleRowSelection(row.id)}
+                                  inputProps={{ 'aria-label': `Выбрать ${row.article}` }}
+                                />
+                              </TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>
+                                <Stack spacing={0.5}>
+                                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                    {row.article}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Добавлено: {row.submitted !== '—' ? row.submitted : '—'}
+                                  </Typography>
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.5}>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                    {row.manufacturer}
+                                  </Typography>
+                                  <Chip
+                                    size="small"
+                                    label={row.manufacturer === '—' ? 'Не найдено' : 'Подтянуто'}
+                                    color={row.manufacturer === '—' ? 'warning' : 'success'}
+                                    variant={row.manufacturer === '—' ? 'outlined' : 'filled'}
+                                  />
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.5}>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                    {row.alias}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Из источников поиска
+                                  </Typography>
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.5}>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                    {row.submitted}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    От пользователя
+                                  </Typography>
+                                </Stack>
+                              </TableCell>
+                              <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
+                              <TableCell>
+                                {confidenceValue ? (
+                                  <Stack spacing={0.5}>
+                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                      {confidenceValue.toFixed(1)}%
+                                    </Typography>
+                                    <LinearProgress
+                                      variant="determinate"
+                                      value={confidenceValue}
+                                      color={
+                                        row.matchStatus === 'mismatch'
+                                          ? 'error'
+                                          : row.matchStatus === 'pending'
+                                          ? 'warning'
+                                          : 'success'
+                                      }
+                                      sx={{ height: 8, borderRadius: 6 }}
+                                    />
+                                  </Stack>
+                                ) : (
+                                  <Typography color="text.secondary">—</Typography>
+                                )}
+                              </TableCell>
+                              <TableCell align="right">
+                                <Tooltip title="Удалить строку">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => handleDeletePartRow(row.id)}
+                                  >
+                                    <DeleteForever fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Stack>
               )}
             </Stack>
           </Paper>
