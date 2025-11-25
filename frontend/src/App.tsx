@@ -1,4 +1,5 @@
 import { Fragment, SyntheticEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { keyframes } from '@emotion/react'
 import {
   AppBar,
   Avatar,
@@ -139,6 +140,30 @@ type AuthState = { token: string; username: string; role: 'admin' | 'user' }
 const AUTH_STORAGE_KEY = 'aliasfinder:auth'
 const THEME_STORAGE_KEY = 'aliasfinder:theme'
 
+const twinkle = keyframes`
+  0% { opacity: 0.25; transform: translateY(0px) scale(0.9); }
+  50% { opacity: 0.95; transform: translateY(4px) scale(1.05); }
+  100% { opacity: 0.4; transform: translateY(0px) scale(0.9); }
+`
+
+const drift = keyframes`
+  0% { transform: translateY(-5%) translateX(0); }
+  50% { transform: translateY(5%) translateX(6%); }
+  100% { transform: translateY(-5%) translateX(0); }
+`
+
+const glowwave = keyframes`
+  0% { opacity: 0.25; }
+  50% { opacity: 0.55; }
+  100% { opacity: 0.25; }
+`
+
+const garlandSwing = keyframes`
+  0% { transform: translateY(0) }
+  50% { transform: translateY(4px) }
+  100% { transform: translateY(0) }
+`
+
 const HolidayLights = () => {
   const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff']
   return (
@@ -148,21 +173,7 @@ const HolidayLights = () => {
         inset: 0,
         overflow: 'hidden',
         pointerEvents: 'none',
-        '@keyframes twinkle': {
-          '0%': { opacity: 0.25, transform: 'translateY(0px) scale(0.9)' },
-          '50%': { opacity: 0.95, transform: 'translateY(4px) scale(1.05)' },
-          '100%': { opacity: 0.4, transform: 'translateY(0px) scale(0.9)' }
-        },
-        '@keyframes drift': {
-          '0%': { transform: 'translateY(-5%) translateX(0)' },
-          '50%': { transform: 'translateY(5%) translateX(6%)' },
-          '100%': { transform: 'translateY(-5%) translateX(0)' }
-        },
-        '@keyframes glowwave': {
-          '0%': { opacity: 0.25 },
-          '50%': { opacity: 0.55 },
-          '100%': { opacity: 0.25 }
-        }
+        zIndex: 0
       }}
     >
       <Box
@@ -174,10 +185,11 @@ const HolidayLights = () => {
           display: 'flex',
           justifyContent: 'space-evenly',
           px: 4,
-          zIndex: 1
+          zIndex: 1,
+          animation: `${garlandSwing} 6s ease-in-out infinite`
         }}
       >
-        {Array.from({ length: 24 }).map((_, index) => (
+        {Array.from({ length: 28 }).map((_, index) => (
           <Box
             key={index}
             sx={{
@@ -186,8 +198,8 @@ const HolidayLights = () => {
               borderRadius: '50%',
               background: palette[index % palette.length],
               boxShadow: `0 0 12px ${palette[index % palette.length]}`,
-              animation: 'twinkle 2.6s ease-in-out infinite',
-              animationDelay: `${index * 90}ms`
+              animation: `${twinkle} 2.6s ease-in-out infinite`,
+              animationDelay: `${index * 70}ms`
             }}
           />
         ))}
@@ -199,7 +211,7 @@ const HolidayLights = () => {
           background:
             'radial-gradient(circle at 20% 20%, rgba(15,163,177,0.16), transparent 35%), radial-gradient(circle at 80% 30%, rgba(255,107,154,0.18), transparent 32%), radial-gradient(circle at 45% 70%, rgba(139,92,246,0.18), transparent 40%)',
           filter: 'blur(2px)',
-          animation: 'drift 18s ease-in-out infinite'
+          animation: `${drift} 18s ease-in-out infinite`
         }}
       />
       <Box
@@ -209,7 +221,7 @@ const HolidayLights = () => {
           background:
             'radial-gradient(ellipse at top, rgba(255,255,255,0.25), transparent 45%), radial-gradient(ellipse at bottom, rgba(135,206,250,0.15), transparent 50%)',
           mixBlendMode: 'screen',
-          animation: 'glowwave 8s ease-in-out infinite'
+          animation: `${glowwave} 8s ease-in-out infinite`
         }}
       />
     </Box>
@@ -653,7 +665,7 @@ export function App() {
             }}
           >
             {themeMode === 'holiday' && <HolidayLights />}
-            <Container maxWidth="sm">
+            <Container maxWidth="sm" sx={{ position: 'relative', zIndex: 1 }}>
               <Paper
                 elevation={12}
               sx={{
@@ -739,16 +751,16 @@ export function App() {
 
       <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box
-        sx={{
-          minHeight: '100vh',
-          backgroundImage: gradientBackground,
-          color: 'text.primary',
-          position: 'relative',
-          overflow: 'hidden'
-        }}
-      >
-        {themeMode === 'holiday' && <HolidayLights />}
+        <Box
+          sx={{
+            minHeight: '100vh',
+            backgroundImage: gradientBackground,
+            color: 'text.primary',
+            position: 'relative',
+            overflow: 'hidden'
+          }}
+        >
+          {themeMode === 'holiday' && <HolidayLights />}
         <AppBar
           position="sticky"
         color="transparent"
