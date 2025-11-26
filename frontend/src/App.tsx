@@ -947,6 +947,7 @@ export function App() {
   )
   const progressWindowRef = useRef<HTMLDivElement | null>(null)
   const [selectedRows, setSelectedRows] = useState<number[]>([])
+  const [tableWindowMode, setTableWindowMode] = useState<'normal' | 'maximized'>('normal')
   const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
   const [logs, setLogs] = useState<SearchLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
@@ -1199,6 +1200,10 @@ export function App() {
     setTableSizeOverride({ height: false, width: false })
   }
 
+  const toggleTableFullscreen = () => {
+    setTableWindowMode((prev) => (prev === 'maximized' ? 'normal' : 'maximized'))
+  }
+
   const handleSelectAllRows = (checked: boolean) => {
     setSelectedRows(checked ? filteredTableData.map((row) => row.id) : [])
   }
@@ -1409,6 +1414,17 @@ export function App() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [tableSizeOverride])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    if (tableWindowMode === 'maximized') {
+      const previous = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      return () => {
+        document.body.style.overflow = previous
+      }
+    }
+  }, [tableWindowMode])
 
   useEffect(() => {
     if (!auth) {
@@ -2278,6 +2294,7 @@ export function App() {
                           valueLabelDisplay="auto"
                           value={tableSize.width}
                           onChange={handleTableWidthChange}
+                          disabled={tableWindowMode === 'maximized'}
                         />
                       </Stack>
                       <Stack sx={{ minWidth: { xs: '100%', md: 240 } }} spacing={0.5}>
@@ -2292,28 +2309,60 @@ export function App() {
                           valueLabelDisplay="auto"
                           value={tableSize.height}
                           onChange={handleTableHeightChange}
+                          disabled={tableWindowMode === 'maximized'}
                         />
                       </Stack>
                     </Stack>
-                    <Button variant="outlined" size="small" onClick={resetTableSize}>
-                      Автоматический размер
-                    </Button>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Tooltip
+                        title={
+                          tableWindowMode === 'maximized'
+                            ? 'Свернуть таблицу из полноэкранного режима'
+                            : 'Развернуть таблицу на весь экран'
+                        }
+                      >
+                        <IconButton color="primary" onClick={toggleTableFullscreen}>
+                          {tableWindowMode === 'maximized' ? (
+                            <FullscreenExit fontSize="small" />
+                          ) : (
+                            <OpenInFull fontSize="small" />
+                          )}
+                        </IconButton>
+                      </Tooltip>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={resetTableSize}
+                        disabled={tableWindowMode === 'maximized'}
+                      >
+                        Автоматический размер
+                      </Button>
+                    </Stack>
                   </Stack>
 
                   <TableContainer
                     component={Paper}
                     variant="outlined"
                     sx={{
-                      borderRadius: 3,
+                      borderRadius: tableWindowMode === 'maximized' ? 0 : 3,
                       overflow: 'auto',
-                      height: tableSize.height,
-                      width: `${tableSize.width}%`,
-                      maxWidth: '120%',
-                      minWidth: '80%',
+                      height:
+                        tableWindowMode === 'maximized'
+                          ? 'calc(100vh - 140px)'
+                          : tableSize.height,
+                      width: tableWindowMode === 'maximized' ? '100%' : `${tableSize.width}%`,
+                      maxWidth: tableWindowMode === 'maximized' ? '100%' : '120%',
+                      minWidth: tableWindowMode === 'maximized' ? '100%' : '80%',
                       minHeight: 320,
-                      resize: 'both',
-                      transition: 'height 180ms ease, width 180ms ease',
-                      boxShadow: (theme) => theme.shadows[1]
+                      resize: tableWindowMode === 'normal' ? 'both' : 'none',
+                      transition: 'height 200ms ease, width 200ms ease',
+                      boxShadow: (theme) => theme.shadows[tableWindowMode === 'maximized' ? 10 : 1],
+                      position: tableWindowMode === 'maximized' ? 'fixed' : 'relative',
+                      top: tableWindowMode === 'maximized' ? 80 : 'auto',
+                      left: tableWindowMode === 'maximized' ? 0 : 'auto',
+                      right: tableWindowMode === 'maximized' ? 0 : 'auto',
+                      zIndex: (theme) => (tableWindowMode === 'maximized' ? theme.zIndex.modal : 'auto'),
+                      backgroundColor: (theme) => theme.palette.background.paper
                     }}
                   >
                       <Table stickyHeader size="small">
