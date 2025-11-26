@@ -31,6 +31,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Slider,
   TextField,
   Toolbar,
   Tooltip,
@@ -912,6 +913,19 @@ export function App() {
     source: '',
     match: 'all'
   })
+  const computeAutoTableSize = () => {
+    if (typeof window === 'undefined') {
+      return { height: 640, width: 100 }
+    }
+    return {
+      height: Math.max(420, Math.min(900, window.innerHeight * 0.6)),
+      width: Math.max(85, Math.min(110, (window.innerWidth / 1440) * 100))
+    }
+  }
+  const [tableSize, setTableSize] = useState<{ height: number; width: number }>(() => computeAutoTableSize())
+  const [tableSizeOverride, setTableSizeOverride] = useState<{ height: boolean; width: boolean }>(
+    () => ({ height: false, width: false })
+  )
   const [selectedRows, setSelectedRows] = useState<number[]>([])
   const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
   const [logs, setLogs] = useState<SearchLog[]>([])
@@ -1128,6 +1142,24 @@ export function App() {
     }
   }
 
+  const handleTableHeightChange = (_: Event, value: number | number[]) => {
+    const next = Array.isArray(value) ? value[0] : value
+    setTableSize((prev) => ({ ...prev, height: next }))
+    setTableSizeOverride((prev) => ({ ...prev, height: true }))
+  }
+
+  const handleTableWidthChange = (_: Event, value: number | number[]) => {
+    const next = Array.isArray(value) ? value[0] : value
+    setTableSize((prev) => ({ ...prev, width: next }))
+    setTableSizeOverride((prev) => ({ ...prev, width: true }))
+  }
+
+  const resetTableSize = () => {
+    const autoSize = computeAutoTableSize()
+    setTableSize(autoSize)
+    setTableSizeOverride({ height: false, width: false })
+  }
+
   const handleSelectAllRows = (checked: boolean) => {
     setSelectedRows(checked ? filteredTableData.map((row) => row.id) : [])
   }
@@ -1291,6 +1323,20 @@ export function App() {
     if (typeof window === 'undefined') return
     window.localStorage.setItem(THEME_STORAGE_KEY, themeMode)
   }, [themeMode])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handleResize = () => {
+      const autoSize = computeAutoTableSize()
+      setTableSize((prev) => ({
+        height: tableSizeOverride.height ? prev.height : autoSize.height,
+        width: tableSizeOverride.width ? prev.width : autoSize.width
+      }))
+    }
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [tableSizeOverride])
 
   useEffect(() => {
     if (!auth) {
@@ -2019,17 +2065,74 @@ export function App() {
                           />
                           <FormControlLabel
                             control={<Checkbox checked={debugMode} onChange={() => setDebugMode((prev) => !prev)} />}
-                            label="Показать debug"
-                          />
-                        </Stack>
+                          label="Показать debug"
+                        />
                       </Stack>
-                    </Box>
+                    </Stack>
+                  </Box>
 
-                    <TableContainer
-                      component={Paper}
-                      variant="outlined"
-                      sx={{ borderRadius: 3, overflow: 'hidden', maxHeight: { xs: 480, md: 720 } }}
+                  <Stack
+                    direction={{ xs: 'column', lg: 'row' }}
+                    spacing={2}
+                    justifyContent="space-between"
+                    alignItems={{ xs: 'stretch', lg: 'center' }}
+                  >
+                    <Stack
+                      direction={{ xs: 'column', md: 'row' }}
+                      spacing={2}
+                      flex={1}
+                      alignItems={{ xs: 'stretch', md: 'center' }}
                     >
+                      <Stack sx={{ minWidth: { xs: '100%', md: 240 } }} spacing={0.5}>
+                        <Typography variant="caption" color="text.secondary">
+                          Ширина таблицы (% экрана)
+                        </Typography>
+                        <Slider
+                          size="small"
+                          min={80}
+                          max={110}
+                          step={1}
+                          valueLabelDisplay="auto"
+                          value={tableSize.width}
+                          onChange={handleTableWidthChange}
+                        />
+                      </Stack>
+                      <Stack sx={{ minWidth: { xs: '100%', md: 240 } }} spacing={0.5}>
+                        <Typography variant="caption" color="text.secondary">
+                          Высота таблицы (px)
+                        </Typography>
+                        <Slider
+                          size="small"
+                          min={380}
+                          max={960}
+                          step={10}
+                          valueLabelDisplay="auto"
+                          value={tableSize.height}
+                          onChange={handleTableHeightChange}
+                        />
+                      </Stack>
+                    </Stack>
+                    <Button variant="outlined" size="small" onClick={resetTableSize}>
+                      Автоматический размер
+                    </Button>
+                  </Stack>
+
+                  <TableContainer
+                    component={Paper}
+                    variant="outlined"
+                    sx={{
+                      borderRadius: 3,
+                      overflow: 'auto',
+                      height: tableSize.height,
+                      width: `${tableSize.width}%`,
+                      maxWidth: '120%',
+                      minWidth: '80%',
+                      minHeight: 320,
+                      resize: 'both',
+                      transition: 'height 180ms ease, width 180ms ease',
+                      boxShadow: (theme) => theme.shadows[1]
+                    }}
+                  >
                       <Table stickyHeader size="small">
                         <TableHead>
                           <TableRow>
