@@ -898,12 +898,16 @@ export function App() {
     manufacturer: string
     alias: string
     submitted: string
+    service: string
+    source: string
     match: 'all' | 'matched' | 'mismatch' | 'pending' | 'none'
   }>({
     article: '',
     manufacturer: '',
     alias: '',
     submitted: '',
+    service: '',
+    source: '',
     match: 'all'
   })
   const [selectedRows, setSelectedRows] = useState<number[]>([])
@@ -928,7 +932,15 @@ export function App() {
       alias: record.alias_used ?? '—',
       submitted: record.submitted_manufacturer ?? '—',
       matchStatus: (record.match_status ?? null) as MatchStatus,
-      matchConfidence: record.match_confidence ?? null
+      matchConfidence: record.match_confidence ?? null,
+      confidence: record.confidence ?? null,
+      service: record.search_stage
+        ? stageLabels[record.search_stage as StageName] ?? record.search_stage
+        : '—',
+      source: record.source_url ?? '—',
+      stageHistory: record.stage_history ?? [],
+      debugLog: record.debug_log ?? null,
+      createdAt: record.created_at
     }))
   }, [history])
   const filteredTableData = useMemo(() => {
@@ -936,6 +948,8 @@ export function App() {
     const manufacturerTerm = tableFilters.manufacturer.trim().toLowerCase()
     const aliasTerm = tableFilters.alias.trim().toLowerCase()
     const submittedTerm = tableFilters.submitted.trim().toLowerCase()
+    const serviceTerm = tableFilters.service.trim().toLowerCase()
+    const sourceTerm = tableFilters.source.trim().toLowerCase()
     return tableData.filter((row) => {
       const isFound = row.manufacturer !== '—' && row.matchStatus !== 'mismatch'
       const isMissing = row.manufacturer === '—' || row.matchStatus === 'mismatch'
@@ -946,6 +960,8 @@ export function App() {
       const matchesManufacturer = row.manufacturer.toLowerCase().includes(manufacturerTerm)
       const matchesAlias = row.alias.toLowerCase().includes(aliasTerm)
       const matchesSubmitted = row.submitted.toLowerCase().includes(submittedTerm)
+      const matchesService = row.service.toLowerCase().includes(serviceTerm)
+      const matchesSource = row.source.toLowerCase().includes(sourceTerm)
       const matchesMatchStatus = (() => {
         if (tableFilters.match === 'all') return true
         if (tableFilters.match === 'none') return row.matchStatus === null
@@ -957,6 +973,8 @@ export function App() {
         matchesManufacturer &&
         matchesAlias &&
         matchesSubmitted &&
+        matchesService &&
+        matchesSource &&
         matchesMatchStatus
       )
     })
@@ -985,6 +1003,7 @@ export function App() {
     { status: 'idle' }
   )
   const [uploadedItems, setUploadedItems] = useState<PartRequestItem[]>([])
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
   const [currentService, setCurrentService] = useState('—')
   const progressTimerRef = useRef<number | null>(null)
   const progressIndexRef = useRef(0)
@@ -1658,9 +1677,6 @@ export function App() {
                             ))}
                           </Stack>
                           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }}>
-                            <Button startIcon={<AddCircleOutline />} variant="outlined" onClick={addRow}>
-                              Добавить строку
-                            </Button>
                             <Button
                               startIcon={<Search />}
                               variant="contained"
@@ -1695,31 +1711,37 @@ export function App() {
                         >
                           <Stack spacing={2}>
                             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                              Загрузка из Excel
+                              Статус загрузки
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                              Шаблон таблицы: обязательные столбцы «Article» и «Manufacturer/Alias». Эти же поля используются при выгрузке.
+                              Используйте панель действий над общей таблицей, чтобы выбрать файл, выгрузить шаблон или экспортировать результаты.
                             </Typography>
-                            <Button component="label" startIcon={<Upload />} variant="contained">
-                              Выбрать файл
-                              <input hidden type="file" accept=".xls,.xlsx" onChange={handleUpload} />
-                            </Button>
-                            {uploadState.status !== 'idle' && (
-                              <Stack spacing={1} sx={{ width: '100%' }}>
-                                {uploadState.status === 'uploading' && <LinearProgress color="secondary" />}
-                                <Chip
-                                  label={uploadState.message ?? 'Обработка файла'}
-                                  color={
-                                    uploadState.status === 'done'
-                                      ? 'success'
-                                      : uploadState.status === 'uploading'
-                                      ? 'info'
-                                      : 'error'
-                                  }
-                                  variant="outlined"
-                                />
-                              </Stack>
-                            )}
+                            <Stack spacing={1}>
+                              {uploadState.status === 'uploading' && <LinearProgress color="secondary" />}
+                              <Chip
+                                label={
+                                  uploadState.message ??
+                                  (uploadState.status === 'idle'
+                                    ? 'Файл не выбран'
+                                    : uploadState.status === 'done'
+                                    ? 'Готово к поиску'
+                                    : 'Ошибка загрузки')
+                                }
+                                color={
+                                  uploadState.status === 'done'
+                                    ? 'success'
+                                    : uploadState.status === 'uploading'
+                                    ? 'info'
+                                    : uploadState.status === 'idle'
+                                    ? 'default'
+                                    : 'error'
+                                }
+                                variant="outlined"
+                              />
+                              <Typography variant="caption" color="text.secondary">
+                                Загружено позиций: {uploadedItems.length}
+                              </Typography>
+                            </Stack>
                             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
                               <Button
                                 startIcon={<Search />}
@@ -1731,37 +1753,13 @@ export function App() {
                                 Запуск поиска
                               </Button>
                               <Button
-                                startIcon={<FileDownload />}
-                                variant="outlined"
-                                onClick={() => handleExport('excel')}
+                                variant="text"
+                                onClick={() => {
+                                  setUploadedItems([])
+                                  setUploadState({ status: 'idle' })
+                                }}
                               >
-                                Excel шаблон
-                              </Button>
-                            </Stack>
-                            <Typography variant="caption" color="text.secondary">
-                              После успешной загрузки таблицы кнопка «Запуск поиска» станет активной и выполнит поиск по загруженным записям.
-                            </Typography>
-                          </Stack>
-                        </Paper>
-
-                        <Paper
-                          elevation={0}
-                          variant="outlined"
-                          sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 3, borderColor: 'divider' }}
-                        >
-                          <Stack spacing={2}>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                              Выгрузка результатов
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              Сформируйте свежие отчёты PDF/Excel прямо из текущей базы.
-                            </Typography>
-                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                              <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
-                                Excel
-                              </Button>
-                              <Button startIcon={<FileDownload />} variant="contained" onClick={() => handleExport('pdf')}>
-                                PDF
+                                Очистить загрузку
                               </Button>
                             </Stack>
                           </Stack>
@@ -1891,121 +1889,12 @@ export function App() {
           >
             <Stack spacing={3}>
               <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
-                <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                  Результаты поиска
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Источник → производитель → достоверность. Все стадии доступны в один клик.
-                </Typography>
-              </Box>
-              {results.length === 0 ? (
-                <Typography color="text.secondary">Запустите поиск, чтобы увидеть результаты.</Typography>
-              ) : (
-                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3 }}>
-                  <Table size="small" stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Confidence</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Service</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Source</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Stages</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {results.map((result, index) => (
-                        <Fragment key={`${result.part_number}-${index}`}>
-                          <TableRow hover>
-                            <TableCell>{result.part_number}</TableCell>
-                            <TableCell>{result.manufacturer_name ?? '—'}</TableCell>
-                            <TableCell>{result.alias_used ?? '—'}</TableCell>
-                            <TableCell>{result.submitted_manufacturer ?? '—'}</TableCell>
-                            <TableCell>
-                              {renderMatchChip(
-                                (result.match_status ?? null) as MatchStatus,
-                                result.match_confidence ?? null
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {result.confidence ? `${(result.confidence * 100).toFixed(1)}%` : '—'}
-                            </TableCell>
-                            <TableCell>
-                              {result.search_stage
-                                ? stageLabels[result.search_stage as StageName] ?? result.search_stage
-                                : '—'}
-                            </TableCell>
-                            <TableCell>
-                              {result.source_url ? (
-                                <Box
-                                  component="a"
-                                  href={result.source_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  sx={{ color: 'secondary.main', wordBreak: 'break-all' }}
-                                >
-                                  {result.source_url}
-                                </Box>
-                              ) : (
-                                '—'
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {result.stage_history && result.stage_history.length > 0 ? (
-                                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                                  {result.stage_history.map((stage) => (
-                                    <Chip
-                                      key={`${result.part_number}-${stage.name}`}
-                                      size="small"
-                                      label={`${stage.name}: ${stageStatusDescription[stage.status]}`}
-                                      color={stageStatusChipColor[stage.status]}
-                                      title={stage.message ?? undefined}
-                                    />
-                                  ))}
-                                </Stack>
-                              ) : (
-                                '—'
-                              )}
-                            </TableCell>
-                          </TableRow>
-                          {debugMode && result.debug_log ? (
-                            <TableRow>
-                              <TableCell colSpan={9} sx={{ backgroundColor: 'action.hover' }}>
-                                <Typography variant="body2" color="text.secondary">
-                                  {result.debug_log}
-                                </Typography>
-                              </TableCell>
-                            </TableRow>
-                          ) : null}
-                        </Fragment>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </Stack>
-          </Paper>
-
-          <Paper
-            elevation={10}
-            sx={{
-              p: { xs: 3, md: 4 },
-              borderRadius: 4,
-              border: '1px solid',
-              borderColor: 'divider'
-            }}
-          >
-            <Stack spacing={3}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
                 <Box>
                   <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                    Таблица производителей
+                    Общая таблица поиска и производителей
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Каждое найденное соответствие мгновенно попадает в таблицу и базу данных.
+                    Все найденные строки, импорт и результаты поиска объединены в одной адаптивной таблице.
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1} alignItems="center">
@@ -2022,6 +1911,73 @@ export function App() {
                   </ToggleButtonGroup>
                 </Stack>
               </Box>
+              <Stack
+                direction={{ xs: 'column', lg: 'row' }}
+                spacing={1.5}
+                alignItems={{ xs: 'stretch', lg: 'center' }}
+                justifyContent="space-between"
+              >
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
+                  <Button startIcon={<Upload />} variant="contained" onClick={() => uploadInputRef.current?.click()}>
+                    Выбрать файл
+                  </Button>
+                  <input
+                    ref={uploadInputRef}
+                    hidden
+                    type="file"
+                    accept=".xls,.xlsx"
+                    onChange={handleUpload}
+                  />
+                  <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
+                    Excel шаблон
+                  </Button>
+                  <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
+                    Выгрузить Excel
+                  </Button>
+                  <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('pdf')}>
+                    Выгрузить PDF
+                  </Button>
+                  <Button startIcon={<AddCircleOutline />} variant="text" onClick={addRow}>
+                    Добавить строку
+                  </Button>
+                </Stack>
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={1}
+                  alignItems={{ xs: 'stretch', sm: 'center' }}
+                  justifyContent="flex-end"
+                >
+                  <Chip
+                    label={
+                      uploadState.message ??
+                      (uploadState.status === 'idle'
+                        ? 'Файл не выбран'
+                        : uploadState.status === 'done'
+                        ? 'Файл загружен'
+                        : 'Ошибка загрузки')
+                    }
+                    color={
+                      uploadState.status === 'done'
+                        ? 'success'
+                        : uploadState.status === 'uploading'
+                        ? 'info'
+                        : uploadState.status === 'idle'
+                        ? 'default'
+                        : 'error'
+                    }
+                    variant="outlined"
+                  />
+                  <Button
+                    startIcon={<Search />}
+                    variant="contained"
+                    color="secondary"
+                    disabled={uploadState.status !== 'done' || !uploadedItems.length || loading}
+                    onClick={runUploadedSearch}
+                  >
+                    Запуск поиска
+                  </Button>
+                </Stack>
+              </Stack>
               {filteredTableData.length === 0 ? (
                 <Typography color="text.secondary">Пока нет данных. Выполните поиск или импорт.</Typography>
               ) : (
@@ -2046,7 +2002,7 @@ export function App() {
                     component={Paper}
                     variant="outlined"
                     sx={{
-                      maxHeight: { xs: '55vh', lg: '65vh' },
+                      maxHeight: { xs: '60vh', lg: '70vh' },
                       borderRadius: 3,
                       overflow: 'auto',
                       borderColor: 'divider',
@@ -2059,7 +2015,7 @@ export function App() {
                     <Table
                       stickyHeader
                       size="small"
-                      sx={{ minWidth: { xs: 760, md: 960 }, tableLayout: 'fixed' }}
+                      sx={{ minWidth: { xs: 980, md: 1180 }, tableLayout: 'fixed' }}
                     >
                       <TableHead>
                         <TableRow>
@@ -2085,6 +2041,9 @@ export function App() {
                           </TableCell>
                           <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Статус</TableCell>
                           <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Достоверность</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Сервис</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Источник</TableCell>
+                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Стадии</TableCell>
                           <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }} align="right">
                             Действия
                           </TableCell>
@@ -2122,14 +2081,14 @@ export function App() {
                               onChange={(e) =>
                                 setTableFilters((prev) => ({ ...prev, manufacturer: e.target.value }))
                               }
-                                  InputProps={{
-                                    startAdornment: (
-                                      <InputAdornment position="start">
-                                        <Factory fontSize="small" />
-                                      </InputAdornment>
-                                    )
-                                  }}
-                                />
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <Factory fontSize="small" />
+                                  </InputAdornment>
+                                )
+                              }}
+                            />
                           </TableCell>
                           <TableCell>
                             <TextField
@@ -2189,119 +2148,212 @@ export function App() {
                               Поиск не требуется
                             </Typography>
                           </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="Сервис"
+                              value={tableFilters.service}
+                              onChange={(e) =>
+                                setTableFilters((prev) => ({ ...prev, service: e.target.value }))
+                              }
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <Bolt fontSize="small" />
+                                  </InputAdornment>
+                                )
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="URL или источник"
+                              value={tableFilters.source}
+                              onChange={(e) =>
+                                setTableFilters((prev) => ({ ...prev, source: e.target.value }))
+                              }
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <FilterAlt fontSize="small" />
+                                  </InputAdornment>
+                                )
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption" color="text.secondary">
+                              Стадии по результату
+                            </Typography>
+                          </TableCell>
                           <TableCell />
                         </TableRow>
                       </TableHead>
                       <TableBody>
                         {filteredTableData.map((row) => {
                           const isSelected = selectedRows.includes(row.id)
-                          const confidenceValue = row.matchConfidence ? row.matchConfidence * 100 : null
+                          const confidenceValue =
+                            row.matchConfidence
+                              ? row.matchConfidence * 100
+                              : row.confidence
+                              ? row.confidence * 100
+                              : null
                           return (
-                            <TableRow
-                              key={row.key}
-                              hover
-                              selected={isSelected}
-                              sx={{
-                                '&:nth-of-type(even)': { backgroundColor: 'action.hover' },
-                                transition: 'background-color 150ms ease',
-                                backgroundColor: (theme) => {
-                                  if (row.matchStatus === 'mismatch') {
-                                    return alpha(theme.palette.error.light, 0.12)
+                            <Fragment key={row.key}>
+                              <TableRow
+                                hover
+                                selected={isSelected}
+                                sx={{
+                                  '&:nth-of-type(even)': { backgroundColor: 'action.hover' },
+                                  transition: 'background-color 150ms ease',
+                                  backgroundColor: (theme) => {
+                                    if (row.matchStatus === 'mismatch') {
+                                      return alpha(theme.palette.error.light, 0.12)
+                                    }
+                                    if (row.matchStatus === 'pending') {
+                                      return alpha(theme.palette.warning.light, 0.12)
+                                    }
+                                    return undefined
                                   }
-                                  if (row.matchStatus === 'pending') {
-                                    return alpha(theme.palette.warning.light, 0.12)
-                                  }
-                                  return undefined
-                                }
-                              }}
-                            >
-                              <TableCell padding="checkbox">
-                                <Checkbox
-                                  color="primary"
-                                  checked={isSelected}
-                                  onChange={() => handleToggleRowSelection(row.id)}
-                                  inputProps={{ 'aria-label': `Выбрать ${row.article}` }}
-                                />
-                              </TableCell>
-                              <TableCell sx={{ fontWeight: 700 }}>
-                                <Stack spacing={0.5}>
-                                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                                    {row.article}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    Добавлено: {row.submitted !== '—' ? row.submitted : '—'}
-                                  </Typography>
-                                </Stack>
-                              </TableCell>
-                              <TableCell>
-                                <Stack spacing={0.5}>
-                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                    {row.manufacturer}
-                                  </Typography>
-                                  <Chip
-                                    size="small"
-                                    label={row.manufacturer === '—' ? 'Не найдено' : 'Подтянуто'}
-                                    color={row.manufacturer === '—' ? 'warning' : 'success'}
-                                    variant={row.manufacturer === '—' ? 'outlined' : 'filled'}
+                                }}
+                              >
+                                <TableCell padding="checkbox">
+                                  <Checkbox
+                                    color="primary"
+                                    checked={isSelected}
+                                    onChange={() => handleToggleRowSelection(row.id)}
+                                    inputProps={{ 'aria-label': `Выбрать ${row.article}` }}
                                   />
-                                </Stack>
-                              </TableCell>
-                              <TableCell>
-                                <Stack spacing={0.5}>
-                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                    {row.alias}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    Из источников поиска
-                                  </Typography>
-                                </Stack>
-                              </TableCell>
-                              <TableCell>
-                                <Stack spacing={0.5}>
-                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                    {row.submitted}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    От пользователя
-                                  </Typography>
-                                </Stack>
-                              </TableCell>
-                              <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
-                              <TableCell>
-                                {confidenceValue ? (
+                                </TableCell>
+                                <TableCell sx={{ fontWeight: 700 }}>
+                                  <Stack spacing={0.5}>
+                                    <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                      {row.article}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      Добавлено: {new Date(row.createdAt).toLocaleString()}
+                                    </Typography>
+                                  </Stack>
+                                </TableCell>
+                                <TableCell>
                                   <Stack spacing={0.5}>
                                     <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                      {confidenceValue.toFixed(1)}%
+                                      {row.manufacturer}
                                     </Typography>
-                                    <LinearProgress
-                                      variant="determinate"
-                                      value={confidenceValue}
-                                      color={
-                                        row.matchStatus === 'mismatch'
-                                          ? 'error'
-                                          : row.matchStatus === 'pending'
-                                          ? 'warning'
-                                          : 'success'
-                                      }
-                                      sx={{ height: 8, borderRadius: 6 }}
+                                    <Chip
+                                      size="small"
+                                      label={row.manufacturer === '—' ? 'Не найдено' : 'Подтянуто'}
+                                      color={row.manufacturer === '—' ? 'warning' : 'success'}
+                                      variant={row.manufacturer === '—' ? 'outlined' : 'filled'}
                                     />
                                   </Stack>
-                                ) : (
-                                  <Typography color="text.secondary">—</Typography>
-                                )}
-                              </TableCell>
-                              <TableCell align="right">
-                                <Tooltip title="Удалить строку">
-                                  <IconButton
-                                    size="small"
-                                    color="error"
-                                    onClick={() => handleDeletePartRow(row.id)}
-                                  >
-                                    <DeleteForever fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              </TableCell>
-                            </TableRow>
+                                </TableCell>
+                                <TableCell>
+                                  <Stack spacing={0.5}>
+                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                      {row.alias}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      Из источников поиска
+                                    </Typography>
+                                  </Stack>
+                                </TableCell>
+                                <TableCell>
+                                  <Stack spacing={0.5}>
+                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                      {row.submitted}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      От пользователя
+                                    </Typography>
+                                  </Stack>
+                                </TableCell>
+                                <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
+                                <TableCell>
+                                  {confidenceValue ? (
+                                    <Stack spacing={0.5}>
+                                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                        {confidenceValue.toFixed(1)}%
+                                      </Typography>
+                                      <LinearProgress
+                                        variant="determinate"
+                                        value={confidenceValue}
+                                        color={
+                                          row.matchStatus === 'mismatch'
+                                            ? 'error'
+                                            : row.matchStatus === 'pending'
+                                            ? 'warning'
+                                            : 'success'
+                                        }
+                                        sx={{ height: 8, borderRadius: 6 }}
+                                      />
+                                    </Stack>
+                                  ) : (
+                                    <Typography color="text.secondary">—</Typography>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                    {row.service}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell sx={{ maxWidth: 220 }}>
+                                  {row.source !== '—' ? (
+                                    <Box
+                                      component="a"
+                                      href={row.source}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      sx={{ color: 'secondary.main', wordBreak: 'break-all' }}
+                                    >
+                                      {row.source}
+                                    </Box>
+                                  ) : (
+                                    <Typography color="text.secondary">—</Typography>
+                                  )}
+                                </TableCell>
+                                <TableCell sx={{ maxWidth: 260 }}>
+                                  {row.stageHistory && row.stageHistory.length > 0 ? (
+                                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                      {row.stageHistory.map((stage) => (
+                                        <Chip
+                                          key={`${row.key}-${stage.name}`}
+                                          size="small"
+                                          label={`${stage.name}: ${stageStatusDescription[stage.status]}`}
+                                          color={stageStatusChipColor[stage.status]}
+                                          title={stage.message ?? undefined}
+                                        />
+                                      ))}
+                                    </Stack>
+                                  ) : (
+                                    <Typography color="text.secondary">—</Typography>
+                                  )}
+                                </TableCell>
+                                <TableCell align="right">
+                                  <Tooltip title="Удалить строку">
+                                    <IconButton
+                                      size="small"
+                                      color="error"
+                                      onClick={() => handleDeletePartRow(row.id)}
+                                    >
+                                      <DeleteForever fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </TableCell>
+                              </TableRow>
+                              {debugMode && row.debugLog ? (
+                                <TableRow>
+                                  <TableCell colSpan={11} sx={{ backgroundColor: 'action.hover' }}>
+                                    <Typography variant="body2" color="text.secondary">
+                                      {row.debugLog}
+                                    </Typography>
+                                  </TableCell>
+                                </TableRow>
+                              ) : null}
+                            </Fragment>
                           )
                         })}
                       </TableBody>
