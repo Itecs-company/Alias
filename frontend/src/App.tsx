@@ -935,8 +935,8 @@ export function App() {
       return { width: 420, height: 320 }
     }
     return {
-      width: Math.min(Math.max(window.innerWidth * 0.32, 360), 560),
-      height: Math.min(Math.max(window.innerHeight * 0.35, 280), 540)
+      width: Math.min(Math.max(window.innerWidth * 0.26, 320), 460),
+      height: Math.min(Math.max(window.innerHeight * 0.3, 240), 420)
     }
   }
   const [progressWindowSize, setProgressWindowSize] = useState<{ width: number; height: number }>(() =>
@@ -1248,9 +1248,12 @@ export function App() {
           : progressWindowMode === 'maximized'
           ? '100%'
           : progressWindowSize.height,
+      maxHeight: progressWindowMode === 'maximized' ? '100%' : 460,
+      minHeight: progressWindowMode === 'minimized' ? 'auto' : 240,
       resize: progressWindowMode === 'normal' ? 'both' : 'none',
       overflow: 'auto',
       boxShadow: (theme: any) => theme.shadows[progressWindowMode === 'maximized' ? 8 : 4],
+      alignSelf: 'flex-start',
       transition: 'width 0.2s ease, height 0.2s ease'
     }),
     [progressWindowMode, progressWindowSize.height, progressWindowSize.width]
@@ -2647,73 +2650,6 @@ export function App() {
                   </Stack>
                 </Stack>
               </Paper>
-            </Grid>
-            <Grid item xs={12} xl={3}>
-              <Stack spacing={3} height="100%">
-                <Paper
-                  elevation={6}
-                  sx={{
-                    p: { xs: 2.5, md: 3 },
-                    borderRadius: 4,
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.92),
-                    height: '100%'
-                  }}
-                >
-                  <Stack spacing={1.5} height="100%">
-                    <Box display="flex" alignItems="center" justifyContent="space-between" gap={1}>
-                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                        Прогресс поиска
-                      </Typography>
-                      <Chip size="small" label={`Сервис: ${currentService}`} color="primary" variant="outlined" />
-                    </Box>
-                    {loading && <LinearProgress color="secondary" />}
-                    <Stepper
-                      alternativeLabel
-                      activeStep={activeStepperIndex}
-                      nonLinear
-                      sx={{
-                        pt: 0,
-                        '& .MuiStepIcon-root': { fontSize: '1.5rem' },
-                        '& .MuiStepLabel-label': { fontSize: { xs: '0.85rem', sm: '0.95rem' } },
-                        '& .MuiStepLabel-labelContainer .MuiTypography-caption': { fontSize: '0.75rem' }
-                      }}
-                    >
-                      {stageProgress.map((stage) => (
-                        <Step
-                          key={stage.name}
-                          completed={stage.state === 'done'}
-                          active={stage.state === 'active'}
-                        >
-                          <StepLabel
-                            error={stage.state === 'error'}
-                            optional={
-                              <Typography variant="caption" color="text.secondary">
-                                {stage.message ?? progressStateLabel[stage.state]}
-                              </Typography>
-                            }
-                          >
-                            {stageLabels[stage.name]}
-                          </StepLabel>
-                        </Step>
-                      ))}
-                    </Stepper>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} flexWrap="wrap">
-                      {stageProgress.map((stage) => (
-                        <Chip
-                          key={stage.name}
-                          size="small"
-                          label={`${stageLabels[stage.name]} · ${progressStateLabel[stage.state]}`}
-                          color={progressStateColor[stage.state]}
-                          variant={stage.state === 'active' ? 'filled' : 'outlined'}
-                          title={stage.message ?? undefined}
-                        />
-                      ))}
-                    </Stack>
-                  </Stack>
-                </Paper>
-              </Stack>
             </Grid>
           </Grid>
 
