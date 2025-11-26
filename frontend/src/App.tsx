@@ -48,6 +48,8 @@ import {
   AddCircleOutline,
   Search,
   Bolt,
+  FitScreen,
+  FullscreenExit,
   Lock,
   Logout,
   AcUnit,
@@ -56,6 +58,8 @@ import {
   VisibilityOff,
   Visibility,
   ListAlt,
+  Minimize,
+  OpenInFull,
   FilterAlt
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
@@ -926,6 +930,22 @@ export function App() {
   const [tableSizeOverride, setTableSizeOverride] = useState<{ height: boolean; width: boolean }>(
     () => ({ height: false, width: false })
   )
+  const computeAutoProgressSize = () => {
+    if (typeof window === 'undefined') {
+      return { width: 420, height: 320 }
+    }
+    return {
+      width: Math.min(Math.max(window.innerWidth * 0.32, 360), 560),
+      height: Math.min(Math.max(window.innerHeight * 0.35, 280), 540)
+    }
+  }
+  const [progressWindowSize, setProgressWindowSize] = useState<{ width: number; height: number }>(() =>
+    computeAutoProgressSize()
+  )
+  const [progressWindowMode, setProgressWindowMode] = useState<'normal' | 'maximized' | 'minimized'>(
+    'normal'
+  )
+  const progressWindowRef = useRef<HTMLDivElement | null>(null)
   const [selectedRows, setSelectedRows] = useState<number[]>([])
   const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
   const [logs, setLogs] = useState<SearchLog[]>([])
@@ -1101,6 +1121,25 @@ export function App() {
   useEffect(() => {
     setSelectedRows((prev) => prev.filter((id) => filteredTableData.some((row) => row.id === id)))
   }, [filteredTableData])
+  useEffect(() => {
+    if (progressWindowMode !== 'normal') return
+    const handleResize = () => {
+      setProgressWindowSize(computeAutoProgressSize())
+    }
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [progressWindowMode])
+  useEffect(() => {
+    if (progressWindowMode !== 'normal') return
+    const handleMouseUp = () => {
+      if (!progressWindowRef.current) return
+      const rect = progressWindowRef.current.getBoundingClientRect()
+      setProgressWindowSize({ width: rect.width, height: rect.height })
+    }
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => window.removeEventListener('mouseup', handleMouseUp)
+  }, [progressWindowMode])
   const [snackbar, setSnackbar] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [stageProgress, setStageProgress] = useState<StageProgressEntry[]>(() =>
@@ -1193,12 +1232,42 @@ export function App() {
     }
     return 'radial-gradient(circle at 25% 25%, rgba(77,171,247,0.15), transparent 45%), radial-gradient(circle at 80% 0%, rgba(27,131,172,0.15), transparent 45%), linear-gradient(180deg, #05090f 0%, #0f1827 100%)'
   }, [themeMode])
+  const progressWindowSx = useMemo(
+    () => ({
+      p: { xs: 2.5, md: 3 },
+      borderRadius: 4,
+      border: '1px solid',
+      borderColor: 'divider',
+      backgroundColor: (theme: any) => alpha(theme.palette.background.paper, 0.92),
+      width: progressWindowMode === 'maximized' ? '100%' : progressWindowSize.width,
+      minWidth: 320,
+      maxWidth: '100%',
+      height:
+        progressWindowMode === 'minimized'
+          ? 'auto'
+          : progressWindowMode === 'maximized'
+          ? '100%'
+          : progressWindowSize.height,
+      resize: progressWindowMode === 'normal' ? 'both' : 'none',
+      overflow: 'auto',
+      boxShadow: (theme: any) => theme.shadows[progressWindowMode === 'maximized' ? 8 : 4],
+      transition: 'width 0.2s ease, height 0.2s ease'
+    }),
+    [progressWindowMode, progressWindowSize.height, progressWindowSize.width]
+  )
   const activeStepperIndex = useMemo(() => {
     const activeIdx = stageProgress.findIndex((entry) => entry.state === 'active')
     if (activeIdx >= 0) return activeIdx
     const doneCount = stageProgress.filter((entry) => entry.state === 'done').length
     return doneCount ? doneCount - 1 : 0
   }, [stageProgress])
+  const restoreProgressWindow = () => {
+    setProgressWindowMode('normal')
+    setProgressWindowSize(computeAutoProgressSize())
+  }
+  const toggleMaximizeProgress = () =>
+    setProgressWindowMode((prev) => (prev === 'maximized' ? 'normal' : 'maximized'))
+  const minimizeProgressWindow = () => setProgressWindowMode('minimized')
 
   const resetProgress = () => {
     setStageProgress(STAGE_SEQUENCE.map((name) => ({ name, state: 'idle' })))
@@ -1708,38 +1777,149 @@ export function App() {
             }}
           >
             <Stack spacing={3}>
-              <Stack
-                direction={{ xs: 'column', md: 'row' }}
-                spacing={3}
-                alignItems="flex-start"
-                justifyContent="space-between"
-              >
-                <Box>
-                  <Typography variant="h3" sx={{ fontWeight: 600 }}>
-                    Поиск производителей нового поколения
-                  </Typography>
-                  <Typography variant="body1" color="text.secondary" sx={{ mt: 1.5 }}>
-                    Анализируем datasheet-и, доменные подсказки и OpenAI, чтобы точно определить бренд по артикулу и алиасу.
-                  </Typography>
-                </Box>
-                <Stack direction="row" spacing={1.5} flexWrap="wrap">
-                  <Chip label="67% AI threshold" color="secondary" />
-                  <Chip label="SOCKS5 ready" variant="outlined" color="primary" />
-                  <Chip label="PDF · Excel экспорт" variant="outlined" />
-                </Stack>
-              </Stack>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <Avatar sx={{ bgcolor: 'primary.main', width: 48, height: 48, fontWeight: 600 }}>AI</Avatar>
-                <Typography color="text.secondary">
-                  Интернет → Google Custom Search → OpenAI. Каждый этап логируется и отображается в интерфейсе.
-                </Typography>
-              </Stack>
+              <Grid container spacing={3} alignItems="stretch">
+                <Grid item xs={12} lg={7}>
+                  <Stack spacing={2.5} height="100%">
+                    <Stack spacing={1.5}>
+                      <Typography variant="h3" sx={{ fontWeight: 600 }}>
+                        Поиск производителей нового поколения
+                      </Typography>
+                      <Typography variant="body1" color="text.secondary">
+                        Анализируем datasheet-и, доменные подсказки и OpenAI, чтобы точно определить бренд по артикулу и алиасу.
+                      </Typography>
+                    </Stack>
+                    <Stack direction="row" spacing={1.5} flexWrap="wrap">
+                      <Chip label="67% AI threshold" color="secondary" />
+                      <Chip label="SOCKS5 ready" variant="outlined" color="primary" />
+                      <Chip label="PDF · Excel экспорт" variant="outlined" />
+                    </Stack>
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      <Avatar sx={{ bgcolor: 'primary.main', width: 48, height: 48, fontWeight: 600 }}>AI</Avatar>
+                      <Typography color="text.secondary">
+                        Интернет → Google Custom Search → OpenAI. Каждый этап логируется и отображается в интерфейсе.
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                </Grid>
+                <Grid item xs={12} lg={5}>
+                  <Paper
+                    ref={progressWindowRef}
+                    elevation={6}
+                    sx={{ ...progressWindowSx, display: 'flex', flexDirection: 'column', gap: 1.5 }}
+                  >
+                    <Box
+                      display="flex"
+                      alignItems="flex-start"
+                      justifyContent="space-between"
+                      gap={1.5}
+                      flexWrap="wrap"
+                    >
+                      <Stack spacing={0.25}>
+                        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                          Прогресс поиска
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Окно адаптируется под монитор, его можно растянуть вручную или развернуть.
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <Tooltip title="Свернуть окно">
+                          <span>
+                            <IconButton size="small" onClick={minimizeProgressWindow}>
+                              <Minimize fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip
+                          title={
+                            progressWindowMode === 'maximized'
+                              ? 'Восстановить плавающее окно'
+                              : 'Развернуть на ширину блока'
+                          }
+                        >
+                          <IconButton size="small" onClick={toggleMaximizeProgress}>
+                            {progressWindowMode === 'maximized' ? (
+                              <FullscreenExit fontSize="small" />
+                            ) : (
+                              <OpenInFull fontSize="small" />
+                            )}
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Вернуть адаптивный размер под экран">
+                          <IconButton size="small" onClick={restoreProgressWindow}>
+                            <FitScreen fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                    </Box>
+                    <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap">
+                      <Chip size="small" label={`Сервис: ${currentService}`} color="primary" variant="outlined" />
+                      <Typography variant="caption" color="text.secondary">
+                        {progressWindowMode === 'minimized'
+                          ? 'Окно свернуто — разверните, чтобы увидеть шаги поиска.'
+                          : 'Доступно автоматическое и ручное масштабирование.'}
+                      </Typography>
+                    </Stack>
+                    {progressWindowMode !== 'minimized' && loading && <LinearProgress color="secondary" />}
+                    {progressWindowMode === 'minimized' ? (
+                      <Typography variant="body2" color="text.secondary">
+                        Прогресс скрыт. Используйте кнопки, чтобы восстановить размер или развернуть окно на весь блок.
+                      </Typography>
+                    ) : (
+                      <Stack spacing={2} flex={1} justifyContent="space-between">
+                        <Stepper
+                          alternativeLabel
+                          activeStep={activeStepperIndex}
+                          nonLinear
+                          sx={{
+                            pt: 0,
+                            '& .MuiStepIcon-root': { fontSize: '1.5rem' },
+                            '& .MuiStepLabel-label': { fontSize: { xs: '0.85rem', sm: '0.95rem' } },
+                            '& .MuiStepLabel-labelContainer .MuiTypography-caption': { fontSize: '0.75rem' }
+                          }}
+                        >
+                          {stageProgress.map((stage) => (
+                            <Step
+                              key={stage.name}
+                              completed={stage.state === 'done'}
+                              active={stage.state === 'active'}
+                            >
+                              <StepLabel
+                                error={stage.state === 'error'}
+                                optional={
+                                  <Typography variant="caption" color="text.secondary">
+                                    {stage.message ?? progressStateLabel[stage.state]}
+                                  </Typography>
+                                }
+                              >
+                                {stageLabels[stage.name]}
+                              </StepLabel>
+                            </Step>
+                          ))}
+                        </Stepper>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} flexWrap="wrap">
+                          {stageProgress.map((stage) => (
+                            <Chip
+                              key={stage.name}
+                              size="small"
+                              label={`${stageLabels[stage.name]} · ${progressStateLabel[stage.state]}`}
+                              color={progressStateColor[stage.state]}
+                              variant={stage.state === 'active' ? 'filled' : 'outlined'}
+                              title={stage.message ?? undefined}
+                            />
+                          ))}
+                        </Stack>
+                      </Stack>
+                    )}
+                  </Paper>
+                </Grid>
+              </Grid>
             </Stack>
           </Paper>
 
 
           <Grid container spacing={4} alignItems="stretch">
-            <Grid item xs={12} xl={9}>
+            <Grid item xs={12}>
               <Paper
                 elevation={6}
                 sx={{
