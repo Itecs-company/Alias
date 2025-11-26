@@ -1692,8 +1692,8 @@ export function App() {
           </Paper>
 
 
-          <Grid container spacing={4}>
-            <Grid item xs={12}>
+          <Grid container spacing={4} alignItems="stretch">
+            <Grid item xs={12} xl={9}>
               <Paper
                 elevation={6}
                 sx={{
@@ -1704,18 +1704,19 @@ export function App() {
                   backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.95)
                 }}
               >
-                <Stack spacing={3}>
+                <Stack spacing={4}>
                   <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
                     <Box>
                       <Typography variant="h5" sx={{ fontWeight: 600 }}>
                         Поиск и загрузка производителей
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Запустите поиск по артикулу вручную или импортируйте таблицу, затем выгрузите результаты в нужном формате.
+                        Добавьте артикулы вручную, загрузите Excel и сразу увидьте результаты в общей таблице.
                       </Typography>
                     </Box>
                     <Chip label={`Текущий сервис: ${currentService}`} color="primary" variant="outlined" />
                   </Box>
+
                   <Grid container spacing={3} alignItems="stretch">
                     <Grid item xs={12} lg={7}>
                       <Paper
@@ -1803,34 +1804,44 @@ export function App() {
                             height: '100%'
                           }}
                         >
-                          <Stack spacing={2}>
+                          <Stack spacing={2} height="100%">
                             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                               Статус загрузки
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                              Используйте панель действий над общей таблицей, чтобы выбрать файл, выгрузить шаблон или экспортировать результаты.
+                              При выборе Excel все позиции сразу попадут в таблицу ниже как черновики.
                             </Typography>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
+                              <Button startIcon={<Upload />} variant="contained" onClick={() => uploadInputRef.current?.click()}>
+                                Выбрать файл
+                              </Button>
+                              <input
+                                ref={uploadInputRef}
+                                hidden
+                                type="file"
+                                accept=".xls,.xlsx"
+                                onChange={handleUpload}
+                              />
+                              <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
+                                Excel шаблон
+                              </Button>
+                              <Button startIcon={<AddCircleOutline />} variant="outlined" onClick={addRow}>
+                                Добавить строку
+                              </Button>
+                            </Stack>
                             <Stack spacing={1}>
-                              {uploadState.status === 'uploading' && <LinearProgress color="secondary" />}
-                              <Chip
-                                label={
-                                  uploadState.message ??
-                                  (uploadState.status === 'idle'
-                                    ? 'Файл не выбран'
-                                    : uploadState.status === 'done'
-                                    ? 'Готово к поиску'
-                                    : 'Ошибка загрузки')
-                                }
+                              <LinearProgress
+                                variant={uploadState.status === 'uploading' ? 'indeterminate' : 'determinate'}
+                                value={uploadState.status === 'done' ? 100 : uploadState.status === 'error' ? 50 : 10}
                                 color={
                                   uploadState.status === 'done'
                                     ? 'success'
                                     : uploadState.status === 'uploading'
                                     ? 'info'
                                     : uploadState.status === 'idle'
-                                    ? 'default'
+                                    ? 'primary'
                                     : 'error'
                                 }
-                                variant="outlined"
                               />
                               <Typography variant="caption" color="text.secondary">
                                 Загружено позиций: {uploadedItems.length}
@@ -1878,7 +1889,7 @@ export function App() {
                                 fullWidth
                               />
                               <TextField
-                                label="Новый пароль"
+                                label="Новый пароь"
                                 type="password"
                                 value={credentialsForm.password}
                                 onChange={(event) => setCredentialsForm((prev) => ({ ...prev, password: event.target.value }))}
@@ -1901,635 +1912,527 @@ export function App() {
                       </Stack>
                     </Grid>
                   </Grid>
-                </Stack>
-              </Paper>
-            </Grid>
-            <Grid item xs={12}>
-              <Paper
-                elevation={6}
-                sx={{
-                  p: { xs: 2.5, md: 3 },
-                  borderRadius: 4,
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.92),
-                  maxWidth: 1100,
-                  mx: 'auto'
-                }}
-              >
-                <Stack spacing={1.5}>
-                  <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
-                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                      Прогресс поиска
-                    </Typography>
-                    <Chip size="small" label={`Текущий сервис: ${currentService}`} color="primary" variant="outlined" />
-                  </Box>
-                  {loading && <LinearProgress color="secondary" />}
-                  <Stepper
-                    alternativeLabel
-                    activeStep={activeStepperIndex}
-                    nonLinear
-                    sx={{
-                      pt: 0.5,
-                      '& .MuiStepIcon-root': { fontSize: '1.75rem' },
-                      '& .MuiStepLabel-label': { fontSize: { xs: '0.9rem', sm: '1rem' } },
-                      '& .MuiStepLabel-labelContainer .MuiTypography-caption': { fontSize: '0.75rem' }
-                    }}
-                  >
-                    {stageProgress.map((stage) => (
-                      <Step
-                        key={stage.name}
-                        completed={stage.state === 'done'}
-                        active={stage.state === 'active'}
-                      >
-                        <StepLabel
-                          error={stage.state === 'error'}
-                          optional={
-                            <Typography variant="caption" color="text.secondary">
-                              {stage.message ?? progressStateLabel[stage.state]}
-                            </Typography>
-                          }
-                        >
-                          {stageLabels[stage.name]}
-                        </StepLabel>
-                      </Step>
-                    ))}
-                  </Stepper>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} flexWrap="wrap">
-                    {stageProgress.map((stage) => (
-                      <Chip
-                        key={stage.name}
-                        size="small"
-                        label={`${stageLabels[stage.name]} · ${progressStateLabel[stage.state]}`}
-                        color={progressStateColor[stage.state]}
-                        variant={stage.state === 'active' ? 'filled' : 'outlined'}
-                        title={stage.message ?? undefined}
-                      />
-                    ))}
-                  </Stack>
-                </Stack>
-              </Paper>
-            </Grid>
-          </Grid>
 
-          <Paper
-            elevation={10}
-            sx={{
-              p: { xs: 3, md: 4 },
-              borderRadius: 4,
-              border: '1px solid',
-              borderColor: 'divider'
-            }}
-          >
-            <Stack spacing={3}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
-                <Box>
-                  <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                    Общая таблица поиска и производителей
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Все найденные строки, импорт и результаты поиска объединены в одной адаптивной таблице.
-                  </Typography>
-                </Box>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <ToggleButtonGroup
-                    size="small"
-                    exclusive
-                    value={manufacturerFilter}
-                    onChange={(_, value) => value && setManufacturerFilter(value)}
-                    aria-label="Фильтр производителей"
-                  >
-                    <ToggleButton value="all">Все</ToggleButton>
-                    <ToggleButton value="found">Найденные</ToggleButton>
-                    <ToggleButton value="missing">Не найденные</ToggleButton>
-                  </ToggleButtonGroup>
-                </Stack>
-              </Box>
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' },
-                  gap: 1.5,
-                  alignItems: 'stretch'
-                }}
-              >
-                <Stack
-                  spacing={1}
-                  sx={{
-                    p: 1,
-                    borderRadius: 3,
-                    border: '1px dashed',
-                    borderColor: 'divider',
-                    backgroundColor: (theme) => alpha(theme.palette.background.default, 0.6)
-                  }}
-                >
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Панель действий: загрузка, добавление строк и экспорт всегда под рукой.
-                  </Typography>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
-                    <Button startIcon={<Upload />} variant="contained" onClick={() => uploadInputRef.current?.click()}>
-                      Выбрать файл
-                    </Button>
-                    <input
-                      ref={uploadInputRef}
-                      hidden
-                      type="file"
-                      accept=".xls,.xlsx"
-                      onChange={handleUpload}
-                    />
-                    <Button startIcon={<AddCircleOutline />} variant="outlined" onClick={addRow}>
-                      Добавить строку
-                    </Button>
-                    <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
-                      Excel шаблон
-                    </Button>
-                    <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
-                      Выгрузить Excel
-                    </Button>
-                    <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('pdf')}>
-                      Выгрузить PDF
-                    </Button>
-                    <Button
-                      startIcon={<DeleteForever />}
-                      variant="text"
-                      onClick={() => {
-                        setUploadedItems([])
-                        setRecentUploadTimestamp(null)
-                        setUploadState({ status: 'idle' })
+                  <Divider />
+
+                  <Stack spacing={2.5}>
+                    <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
+                      <Box>
+                        <Typography variant="h4" sx={{ fontWeight: 600 }}>
+                          Общая таблица поиска и производителей
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Все найденные строки, импорт и результаты поиска объединены в одной адаптивной таблице.
+                        </Typography>
+                      </Box>
+                      <ToggleButtonGroup
+                        size="small"
+                        exclusive
+                        value={manufacturerFilter}
+                        onChange={(_, value) => value && setManufacturerFilter(value)}
+                        aria-label="Фильтр производителей"
+                      >
+                        <ToggleButton value="all">Все</ToggleButton>
+                        <ToggleButton value="found">Найденные</ToggleButton>
+                        <ToggleButton value="missing">Не найденные</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Box>
+
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' },
+                        gap: 1.5,
+                        alignItems: 'stretch'
                       }}
                     >
-                      Очистить импорт
-                    </Button>
-                  </Stack>
-                </Stack>
-                <Stack
-                  spacing={1}
-                  sx={{
-                    p: 1,
-                    borderRadius: 3,
-                    border: '1px dashed',
-                    borderColor: 'divider',
-                    backgroundColor: (theme) => alpha(theme.palette.background.default, 0.6)
-                  }}
-                >
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Загруженные строки сразу появляются в таблице. Запустите поиск или обновите файл.
-                  </Typography>
-                  <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    spacing={1}
-                    alignItems={{ xs: 'stretch', sm: 'center' }}
-                    justifyContent="flex-end"
-                  >
-                    <Chip
-                      label={
-                        uploadState.message ??
-                        (uploadState.status === 'idle'
-                          ? 'Файл не выбран'
-                          : uploadState.status === 'done'
-                          ? 'Файл загружен'
-                          : 'Ошибка загрузки')
-                      }
-                      color={
-                        uploadState.status === 'done'
-                          ? 'success'
-                          : uploadState.status === 'uploading'
-                          ? 'info'
-                          : uploadState.status === 'idle'
-                          ? 'default'
-                          : 'error'
-                      }
-                      variant="outlined"
-                    />
-                    <Button
-                      startIcon={<Search />}
-                      variant="contained"
-                      color="secondary"
-                      disabled={uploadState.status !== 'done' || !uploadedItems.length || loading}
-                      onClick={runUploadedSearch}
-                    >
-                      Запуск поиска
-                    </Button>
-                  </Stack>
-                </Stack>
-              </Box>
-              {filteredTableData.length === 0 ? (
-                <Typography color="text.secondary">Пока нет данных. Выполните поиск или импорт.</Typography>
-              ) : (
-                <Stack spacing={1.5}>
-                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                    <Chip label={`Всего записей: ${tableData.length}`} size="small" color="default" />
-                    <Chip
-                      label={`Отфильтровано: ${filteredTableData.length}`}
-                      size="small"
-                      color="secondary"
-                      variant="outlined"
-                    />
-                    <Chip
-                      label={`Выбрано: ${selectedRows.length}`}
-                      size="small"
-                      color={selectedRows.length ? 'success' : 'default'}
-                      variant={selectedRows.length ? 'filled' : 'outlined'}
-                    />
-                  </Stack>
+                      <Stack
+                        spacing={1}
+                        sx={{
+                          p: 1,
+                          borderRadius: 3,
+                          border: '1px dashed',
+                          borderColor: 'divider',
+                          backgroundColor: (theme) => alpha(theme.palette.background.default, 0.6)
+                        }}
+                      >
+                        <Typography variant="subtitle2" color="text.secondary">
+                          Панель действий: загрузка, добавление строк и экспорт всегда под рукой.
+                        </Typography>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
+                          <Button startIcon={<Upload />} variant="contained" onClick={() => uploadInputRef.current?.click()}>
+                            Выбрать файл
+                          </Button>
+                          <input
+                            ref={uploadInputRef}
+                            hidden
+                            type="file"
+                            accept=".xls,.xlsx"
+                            onChange={handleUpload}
+                          />
+                          <Button startIcon={<AddCircleOutline />} variant="outlined" onClick={addRow}>
+                            Добавить строку
+                          </Button>
+                          <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
+                            Excel шаблон
+                          </Button>
+                          <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
+                            Выгрузить Excel
+                          </Button>
+                          <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('pdf')}>
+                            Выгрузить PDF
+                          </Button>
+                          <Button
+                            startIcon={<DeleteForever />}
+                            variant="text"
+                            onClick={() => {
+                              setUploadedItems([])
+                              setRecentUploadTimestamp(null)
+                              setUploadState({ status: 'idle' })
+                            }}
+                          >
+                            Очистить импорт
+                          </Button>
+                        </Stack>
+                      </Stack>
+                      <Stack
+                        spacing={1}
+                        sx={{
+                          p: 1,
+                          borderRadius: 3,
+                          border: '1px dashed',
+                          borderColor: 'divider',
+                          backgroundColor: (theme) => alpha(theme.palette.background.default, 0.6)
+                        }}
+                      >
+                        <Typography variant="subtitle2" color="text.secondary">
+                          Быстрые фильтры и отметка совпадения для объединённой таблицы.
+                        </Typography>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
+                          <FormControlLabel
+                            control={<Checkbox checked={selectedRows.length === filteredTableData.length && filteredTableData.length > 0} onChange={(e) => handleSelectAllRows(e.target.checked)} />}
+                            label="Выбрать все"
+                          />
+                          <FormControlLabel
+                            control={<Checkbox checked={historyHidden} onChange={() => setHistoryHidden((prev) => !prev)} />}
+                            label="Скрыть историю"
+                          />
+                          <FormControlLabel
+                            control={<Checkbox checked={debugMode} onChange={() => setDebugMode((prev) => !prev)} />}
+                            label="Показать debug"
+                          />
+                        </Stack>
+                      </Stack>
+                    </Box>
 
-                  <TableContainer
-                    component={Paper}
-                    variant="outlined"
-                    sx={{
-                      maxHeight: { xs: '65vh', lg: '75vh' },
-                      minHeight: { md: '50vh' },
-                      borderRadius: 3,
-                      overflow: 'auto',
-                      borderColor: 'divider',
-                      width: '100%',
-                      maxWidth: '100%',
-                      backgroundImage:
-                        'linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.06) 40%, rgba(255,255,255,0.02) 100%)'
-                    }}
-                  >
-                    <Table
-                      stickyHeader
-                      size="small"
-                      sx={{ minWidth: { xs: 980, md: 1180 }, tableLayout: 'fixed' }}
+                    <TableContainer
+                      component={Paper}
+                      variant="outlined"
+                      sx={{ borderRadius: 3, overflow: 'hidden', maxHeight: { xs: 480, md: 720 } }}
                     >
-                      <TableHead>
-                        <TableRow>
-                          <TableCell padding="checkbox">
-                            <Checkbox
-                              color="primary"
-                              indeterminate={
-                                selectedRows.length > 0 && selectedRows.length < filteredTableData.length
-                              }
-                              checked={
-                                filteredTableData.length > 0 &&
-                                selectedRows.length === filteredTableData.length
-                              }
-                              onChange={(e) => handleSelectAllRows(e.target.checked)}
-                              inputProps={{ 'aria-label': 'Выбрать все строки' }}
-                            />
-                          </TableCell>
-                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Артикул</TableCell>
-                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Производитель</TableCell>
-                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Alias</TableCell>
-                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
-                            Заявленный производитель
-                          </TableCell>
-                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Статус</TableCell>
-                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Достоверность</TableCell>
-                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Сервис</TableCell>
-                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Источник</TableCell>
-                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Стадии</TableCell>
-                          <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }} align="right">
-                            Действия
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell padding="checkbox">
-                            <Typography variant="caption" color="text.secondary">
-                              Фильтр
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              placeholder="Например, QE75..."
-                              value={tableFilters.article}
-                              onChange={(e) =>
-                                setTableFilters((prev) => ({ ...prev, article: e.target.value }))
-                              }
-                              InputProps={{
-                                startAdornment: (
-                                  <InputAdornment position="start">
-                                    <Search fontSize="small" />
-                                  </InputAdornment>
-                                )
-                              }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              placeholder="Найденный производитель"
-                              value={tableFilters.manufacturer}
-                              onChange={(e) =>
-                                setTableFilters((prev) => ({ ...prev, manufacturer: e.target.value }))
-                              }
-                              InputProps={{
-                                startAdornment: (
-                                  <InputAdornment position="start">
-                                    <Factory fontSize="small" />
-                                  </InputAdornment>
-                                )
-                              }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              placeholder="Alias"
-                              value={tableFilters.alias}
-                              onChange={(e) => setTableFilters((prev) => ({ ...prev, alias: e.target.value }))}
-                              InputProps={{
-                                startAdornment: (
-                                  <InputAdornment position="start">
-                                    <Bolt fontSize="small" />
-                                  </InputAdornment>
-                                )
-                              }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              placeholder="Из заявки"
-                              value={tableFilters.submitted}
-                              onChange={(e) =>
-                                setTableFilters((prev) => ({ ...prev, submitted: e.target.value }))
-                              }
-                              InputProps={{
-                                startAdornment: (
-                                  <InputAdornment position="start">
-                                    <ListAlt fontSize="small" />
-                                  </InputAdornment>
-                                )
-                              }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              select
-                              label="Статус"
-                              SelectProps={{ native: true }}
-                              value={tableFilters.match}
-                              onChange={(e) =>
-                                setTableFilters((prev) => ({ ...prev, match: e.target.value as typeof prev.match }))
-                              }
-                            >
-                              <option value="all">Все</option>
-                              <option value="matched">Совпадает</option>
-                              <option value="mismatch">Расхождение</option>
-                              <option value="pending">Ожидает</option>
-                              <option value="none">Нет данных</option>
-                            </TextField>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="caption" color="text.secondary">
-                              Поиск не требуется
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              placeholder="Сервис"
-                              value={tableFilters.service}
-                              onChange={(e) =>
-                                setTableFilters((prev) => ({ ...prev, service: e.target.value }))
-                              }
-                              InputProps={{
-                                startAdornment: (
-                                  <InputAdornment position="start">
-                                    <Bolt fontSize="small" />
-                                  </InputAdornment>
-                                )
-                              }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              placeholder="URL или источник"
-                              value={tableFilters.source}
-                              onChange={(e) =>
-                                setTableFilters((prev) => ({ ...prev, source: e.target.value }))
-                              }
-                              InputProps={{
-                                startAdornment: (
-                                  <InputAdornment position="start">
-                                    <FilterAlt fontSize="small" />
-                                  </InputAdornment>
-                                )
-                              }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="caption" color="text.secondary">
-                              Стадии по результату
-                            </Typography>
-                          </TableCell>
-                          <TableCell />
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {filteredTableData.map((row) => {
-                          const isSelected = selectedRows.includes(row.id)
-                          const confidenceValue =
-                            row.matchConfidence
-                              ? row.matchConfidence * 100
-                              : row.confidence
-                              ? row.confidence * 100
-                              : null
-                          const isDraft = row.origin !== 'history'
-                          const originChip =
-                            row.origin === 'upload'
-                              ? { label: 'Черновик Excel', color: 'info' as const }
-                              : row.origin === 'search'
-                              ? { label: 'Новый результат поиска', color: 'secondary' as const }
-                              : { label: 'История', color: 'default' as const }
-                          return (
-                            <Fragment key={row.key}>
-                              <TableRow
-                                hover
-                                selected={isSelected}
-                                sx={{
-                                  '&:nth-of-type(even)': { backgroundColor: 'action.hover' },
-                                  transition: 'background-color 150ms ease',
-                                  backgroundColor: (theme) => {
-                                    if (row.matchStatus === 'mismatch') {
-                                      return alpha(theme.palette.error.light, 0.12)
-                                    }
-                                    if (row.matchStatus === 'pending') {
-                                      return alpha(theme.palette.warning.light, 0.12)
-                                    }
-                                    if (isDraft) {
-                                      return alpha(theme.palette.info.light, 0.08)
-                                    }
-                                    return undefined
-                                  }
+                      <Table stickyHeader size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell padding="checkbox">
+                              <Checkbox
+                                color="primary"
+                                indeterminate={
+                                  selectedRows.length > 0 && selectedRows.length < filteredTableData.length
+                                }
+                                checked={
+                                  filteredTableData.length > 0 && selectedRows.length === filteredTableData.length
+                                }
+                                onChange={(event) => handleSelectAllRows(event.target.checked)}
+                              />
+                            </TableCell>
+                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Артикул</TableCell>
+                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Производитель</TableCell>
+                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Alias</TableCell>
+                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Заявлено</TableCell>
+                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Статус</TableCell>
+                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Достоверность</TableCell>
+                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Сервис</TableCell>
+                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Источник</TableCell>
+                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Стадии</TableCell>
+                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }} align="right">
+                              Действия
+                            </TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell padding="checkbox">
+                              <Typography variant="caption" color="text.secondary">
+                                Фильтр
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                placeholder="Например, QE75..."
+                                value={tableFilters.article}
+                                onChange={(e) =>
+                                  setTableFilters((prev) => ({ ...prev, article: e.target.value }))
+                                }
+                                InputProps={{
+                                  startAdornment: (
+                                    <InputAdornment position="start">
+                                      <Search fontSize="small" />
+                                    </InputAdornment>
+                                  )
                                 }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                placeholder="Найденный производитель"
+                                value={tableFilters.manufacturer}
+                                onChange={(e) =>
+                                  setTableFilters((prev) => ({ ...prev, manufacturer: e.target.value }))
+                                }
+                                InputProps={{
+                                  startAdornment: (
+                                    <InputAdornment position="start">
+                                      <Factory fontSize="small" />
+                                    </InputAdornment>
+                                  )
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                placeholder="Alias"
+                                value={tableFilters.alias}
+                                onChange={(e) => setTableFilters((prev) => ({ ...prev, alias: e.target.value }))}
+                                InputProps={{
+                                  startAdornment: (
+                                    <InputAdornment position="start">
+                                      <Bolt fontSize="small" />
+                                    </InputAdornment>
+                                  )
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                placeholder="Из заявки"
+                                value={tableFilters.submitted}
+                                onChange={(e) =>
+                                  setTableFilters((prev) => ({ ...prev, submitted: e.target.value }))
+                                }
+                                InputProps={{
+                                  startAdornment: (
+                                    <InputAdornment position="start">
+                                      <ListAlt fontSize="small" />
+                                    </InputAdornment>
+                                  )
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                select
+                                label="Статус"
+                                SelectProps={{ native: true }}
+                                value={tableFilters.match}
+                                onChange={(e) =>
+                                  setTableFilters((prev) => ({ ...prev, match: e.target.value as typeof prev.match }))
+                                }
                               >
-                                <TableCell padding="checkbox">
-                                  <Checkbox
-                                    color="primary"
-                                    checked={isSelected}
-                                    onChange={() => handleToggleRowSelection(row.id)}
-                                    inputProps={{ 'aria-label': `Выбрать ${row.article}` }}
-                                  />
-                                </TableCell>
-                                <TableCell sx={{ fontWeight: 700 }}>
-                                  <Stack spacing={0.5}>
-                                    <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                                      {row.article}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      Добавлено: {new Date(row.createdAt).toLocaleString()}
-                                    </Typography>
-                                    <Stack direction="row" spacing={0.75} flexWrap="wrap">
-                                      <Chip size="small" label={originChip.label} color={originChip.color} variant="outlined" />
-                                      {isDraft && (
-                                        <Chip
-                                          size="small"
-                                          label={row.service}
-                                          color="info"
-                                          variant="outlined"
-                                          icon={<Bolt fontSize="small" />}
-                                        />
-                                      )}
-                                    </Stack>
-                                  </Stack>
-                                </TableCell>
-                                <TableCell>
-                                  <Stack spacing={0.5}>
-                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                      {row.manufacturer}
-                                    </Typography>
-                                    <Chip
-                                      size="small"
-                                      label={row.manufacturer === '—' ? 'Не найдено' : 'Подтянуто'}
-                                      color={row.manufacturer === '—' ? 'warning' : 'success'}
-                                      variant={row.manufacturer === '—' ? 'outlined' : 'filled'}
-                                    />
-                                  </Stack>
-                                </TableCell>
-                                <TableCell>
-                                  <Stack spacing={0.5}>
-                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                      {row.alias}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      Из источников поиска
-                                    </Typography>
-                                  </Stack>
-                                </TableCell>
-                                <TableCell>
-                                  <Stack spacing={0.5}>
-                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                      {row.submitted}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      От пользователя
-                                    </Typography>
-                                  </Stack>
-                                </TableCell>
-                                <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
-                                <TableCell>
-                                  {confidenceValue ? (
-                                    <Stack spacing={0.5}>
-                                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                        {confidenceValue.toFixed(1)}%
-                                      </Typography>
-                                      <LinearProgress
-                                        variant="determinate"
-                                        value={confidenceValue}
-                                        color={
-                                          row.matchStatus === 'mismatch'
-                                            ? 'error'
-                                            : row.matchStatus === 'pending'
-                                            ? 'warning'
-                                            : 'success'
-                                        }
-                                        sx={{ height: 8, borderRadius: 6 }}
-                                      />
-                                    </Stack>
-                                  ) : (
-                                    <Typography color="text.secondary">—</Typography>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                    {row.service}
-                                  </Typography>
-                                </TableCell>
-                                <TableCell sx={{ maxWidth: 220 }}>
-                                  {row.source !== '—' ? (
-                                    <Box
-                                      component="a"
-                                      href={row.source}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      sx={{ color: 'secondary.main', wordBreak: 'break-all' }}
-                                    >
-                                      {row.source}
-                                    </Box>
-                                  ) : (
-                                    <Typography color="text.secondary">—</Typography>
-                                  )}
-                                </TableCell>
-                                <TableCell sx={{ maxWidth: 260 }}>
-                                  {row.stageHistory && row.stageHistory.length > 0 ? (
-                                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                                      {row.stageHistory.map((stage) => (
-                                        <Chip
-                                          key={`${row.key}-${stage.name}`}
-                                          size="small"
-                                          label={`${stage.name}: ${stageStatusDescription[stage.status]}`}
-                                          color={stageStatusChipColor[stage.status]}
-                                          title={stage.message ?? undefined}
-                                        />
-                                      ))}
-                                    </Stack>
-                                  ) : (
-                                    <Typography color="text.secondary">—</Typography>
-                                  )}
-                                </TableCell>
-                                <TableCell align="right">
-                                  <Tooltip
-                                    title={
-                                      row.canDelete
-                                        ? 'Удалить строку'
-                                        : 'Черновик появится в таблице после выполнения поиска'
+                                <option value="all">Все</option>
+                                <option value="matched">Совпадает</option>
+                                <option value="mismatch">Расхождение</option>
+                                <option value="pending">Ожидает</option>
+                                <option value="none">Нет данных</option>
+                              </TextField>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="caption" color="text.secondary">
+                                Поиск не требуется
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                placeholder="Сервис"
+                                value={tableFilters.service}
+                                onChange={(e) =>
+                                  setTableFilters((prev) => ({ ...prev, service: e.target.value }))
+                                }
+                                InputProps={{
+                                  startAdornment: (
+                                    <InputAdornment position="start">
+                                      <Bolt fontSize="small" />
+                                    </InputAdornment>
+                                  )
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                placeholder="URL или источник"
+                                value={tableFilters.source}
+                                onChange={(e) =>
+                                  setTableFilters((prev) => ({ ...prev, source: e.target.value }))
+                                }
+                                InputProps={{
+                                  startAdornment: (
+                                    <InputAdornment position="start">
+                                      <FilterAlt fontSize="small" />
+                                    </InputAdornment>
+                                  )
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="caption" color="text.secondary">
+                                Стадии по результату
+                              </Typography>
+                            </TableCell>
+                            <TableCell />
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {filteredTableData.map((row) => {
+                            const isSelected = selectedRows.includes(row.id)
+                            const confidenceValue =
+                              row.matchConfidence
+                                ? row.matchConfidence * 100
+                                : row.confidence
+                                ? row.confidence * 100
+                                : null
+                            const isDraft = row.origin !== 'history'
+                            const originChip =
+                              row.origin === 'upload'
+                                ? { label: 'Черновик Excel', color: 'info' as const }
+                                : row.origin === 'search'
+                                ? { label: 'Новый результат поиска', color: 'secondary' as const }
+                                : { label: 'История', color: 'default' as const }
+                            return (
+                              <Fragment key={row.key}>
+                                <TableRow
+                                  hover
+                                  selected={isSelected}
+                                  sx={{
+                                    '&:nth-of-type(even)': { backgroundColor: 'action.hover' },
+                                    transition: 'background-color 150ms ease',
+                                    backgroundColor: (theme) => {
+                                      if (row.matchStatus === 'mismatch') {
+                                        return alpha(theme.palette.error.light, 0.12)
+                                      }
+                                      if (row.matchStatus === 'pending') {
+                                        return alpha(theme.palette.warning.light, 0.12)
+                                      }
+                                      if (isDraft) {
+                                        return alpha(theme.palette.info.light, 0.08)
+                                      }
+                                      return undefined
                                     }
-                                  >
-                                    <span>
-                                      <IconButton
+                                  }}
+                                >
+                                  <TableCell padding="checkbox">
+                                    <Checkbox
+                                      color="primary"
+                                      checked={isSelected}
+                                      onChange={() => handleToggleRowSelection(row.id)}
+                                      inputProps={{ 'aria-label': `Выбрать ${row.article}` }}
+                                    />
+                                  </TableCell>
+                                  <TableCell sx={{ fontWeight: 700 }}>
+                                    <Stack spacing={0.5}>
+                                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                        {row.article}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Добавлено: {new Date(row.createdAt).toLocaleString()}
+                                      </Typography>
+                                      <Stack direction="row" spacing={0.75} flexWrap="wrap">
+                                        <Chip size="small" label={originChip.label} color={originChip.color} variant="outlined" />
+                                        {isDraft && (
+                                          <Chip
+                                            size="small"
+                                            label={row.service}
+                                            color="info"
+                                            variant="outlined"
+                                            icon={<Bolt fontSize="small" />}
+                                          />
+                                        )}
+                                      </Stack>
+                                    </Stack>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Stack spacing={0.5}>
+                                      <Typography sx={{ fontWeight: 600 }}>{row.manufacturer}</Typography>
+                                      <Typography variant="body2" color="text.secondary">
+                                        Актуальный alias: {row.alias}
+                                      </Typography>
+                                    </Stack>
+                                  </TableCell>
+                                  <TableCell>{row.alias}</TableCell>
+                                  <TableCell>{row.submitted}</TableCell>
+                                  <TableCell>
+                                    {row.matchStatus ? (
+                                      <Chip
                                         size="small"
-                                        color="error"
-                                        disabled={!row.canDelete}
-                                        onClick={() => handleDeletePartRow(row.id)}
-                                      >
-                                        <DeleteForever fontSize="small" />
-                                      </IconButton>
-                                    </span>
-                                  </Tooltip>
-                                </TableCell>
-                              </TableRow>
-                              {debugMode && row.debugLog ? (
-                                <TableRow>
-                                  <TableCell colSpan={11} sx={{ backgroundColor: 'action.hover' }}>
-                                    <Typography variant="body2" color="text.secondary">
-                                      {row.debugLog}
+                                        label={matchStatusLabels[row.matchStatus]}
+                                        color={matchStatusColor[row.matchStatus]}
+                                        variant="outlined"
+                                      />
+                                    ) : (
+                                      <Chip size="small" label="нет данных" variant="outlined" />
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {confidenceValue !== null ? `${confidenceValue.toFixed(1)}%` : '—'}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Stack spacing={0.5}>
+                                      <Typography>{row.service}</Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        {row.origin === 'search' ? 'новый поиск' : row.origin === 'upload' ? 'Excel' : 'архив'}
+                                      </Typography>
+                                    </Stack>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2" noWrap title={row.source}>
+                                      {row.source}
                                     </Typography>
                                   </TableCell>
+                                  <TableCell>
+                                    {row.stageHistory && row.stageHistory.length > 0 ? (
+                                      <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                                        {row.stageHistory.map((stage, stageIndex) => (
+                                          <Chip
+                                            key={`${row.key}-${stage.name}`}
+                                            size="small"
+                                            label={`${stage.name}: ${stageStatusDescription[stage.status]}`}
+                                            color={stageStatusChipColor[stage.status]}
+                                            title={stage.message ?? undefined}
+                                          />
+                                        ))}
+                                      </Stack>
+                                    ) : (
+                                      <Typography color="text.secondary">—</Typography>
+                                    )}
+                                  </TableCell>
+                                  <TableCell align="right">
+                                    <Tooltip
+                                      title={
+                                        row.canDelete
+                                          ? 'Удалить строку'
+                                          : 'Черновик появится в таблице после выполнения поиска'
+                                      }
+                                    >
+                                      <span>
+                                        <IconButton
+                                          size="small"
+                                          color="error"
+                                          disabled={!row.canDelete}
+                                          onClick={() => handleDeletePartRow(row.id)}
+                                        >
+                                          <DeleteForever fontSize="small" />
+                                        </IconButton>
+                                      </span>
+                                    </Tooltip>
+                                  </TableCell>
                                 </TableRow>
-                              ) : null}
-                            </Fragment>
-                          )
-                        })}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
+                                {debugMode && row.debugLog ? (
+                                  <TableRow>
+                                    <TableCell colSpan={11} sx={{ backgroundColor: 'action.hover' }}>
+                                      <Typography variant="body2" color="text.secondary">
+                                        {row.debugLog}
+                                      </Typography>
+                                    </TableCell>
+                                  </TableRow>
+                                ) : null}
+                              </Fragment>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Stack>
                 </Stack>
-              )}
-            </Stack>
-          </Paper>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} xl={3}>
+              <Stack spacing={3} height="100%">
+                <Paper
+                  elevation={6}
+                  sx={{
+                    p: { xs: 2.5, md: 3 },
+                    borderRadius: 4,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.92),
+                    height: '100%'
+                  }}
+                >
+                  <Stack spacing={1.5} height="100%">
+                    <Box display="flex" alignItems="center" justifyContent="space-between" gap={1}>
+                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                        Прогресс поиска
+                      </Typography>
+                      <Chip size="small" label={`Сервис: ${currentService}`} color="primary" variant="outlined" />
+                    </Box>
+                    {loading && <LinearProgress color="secondary" />}
+                    <Stepper
+                      alternativeLabel
+                      activeStep={activeStepperIndex}
+                      nonLinear
+                      sx={{
+                        pt: 0,
+                        '& .MuiStepIcon-root': { fontSize: '1.5rem' },
+                        '& .MuiStepLabel-label': { fontSize: { xs: '0.85rem', sm: '0.95rem' } },
+                        '& .MuiStepLabel-labelContainer .MuiTypography-caption': { fontSize: '0.75rem' }
+                      }}
+                    >
+                      {stageProgress.map((stage) => (
+                        <Step
+                          key={stage.name}
+                          completed={stage.state === 'done'}
+                          active={stage.state === 'active'}
+                        >
+                          <StepLabel
+                            error={stage.state === 'error'}
+                            optional={
+                              <Typography variant="caption" color="text.secondary">
+                                {stage.message ?? progressStateLabel[stage.state]}
+                              </Typography>
+                            }
+                          >
+                            {stageLabels[stage.name]}
+                          </StepLabel>
+                        </Step>
+                      ))}
+                    </Stepper>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} flexWrap="wrap">
+                      {stageProgress.map((stage) => (
+                        <Chip
+                          key={stage.name}
+                          size="small"
+                          label={`${stageLabels[stage.name]} · ${progressStateLabel[stage.state]}`}
+                          color={progressStateColor[stage.state]}
+                          variant={stage.state === 'active' ? 'filled' : 'outlined'}
+                          title={stage.message ?? undefined}
+                        />
+                      ))}
+                    </Stack>
+                  </Stack>
+                </Paper>
+              </Stack>
+            </Grid>
+          </Grid>
 
           <Paper
             elevation={6}
