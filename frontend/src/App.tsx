@@ -892,6 +892,8 @@ export function App() {
   const [history, setHistory] = useState<PartRead[]>([])
   const [historyFilter, setHistoryFilter] = useState('')
   const [historyHidden, setHistoryHidden] = useState(false)
+  const [recentSearchTimestamp, setRecentSearchTimestamp] = useState<string | null>(null)
+  const [recentUploadTimestamp, setRecentUploadTimestamp] = useState<string | null>(null)
   const [manufacturerFilter, setManufacturerFilter] = useState<'all' | 'found' | 'missing'>('all')
   const [tableFilters, setTableFilters] = useState<{
     article: string
@@ -920,11 +922,36 @@ export function App() {
     direction: '',
     q: ''
   })
-  const tableData = useMemo(() => {
+  const [uploadState, setUploadState] = useState<{
+    status: 'idle' | 'uploading' | 'done' | 'error'
+    message?: string
+  }>({ status: 'idle' })
+  const [uploadedItems, setUploadedItems] = useState<PartRequestItem[]>([])
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
+  type TableRowRecord = {
+    id: number
+    key: string
+    article: string
+    manufacturer: string
+    alias: string
+    submitted: string
+    matchStatus: MatchStatus
+    matchConfidence: number | null
+    confidence: number | null
+    service: string
+    source: string
+    stageHistory: StageStatus[]
+    debugLog: string | null
+    createdAt: string
+    origin: 'history' | 'search' | 'upload'
+    canDelete: boolean
+  }
+  const tableData = useMemo<TableRowRecord[]>(() => {
     const sorted = [...history].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     )
-    return sorted.map((record) => ({
+
+    const historyRows: TableRowRecord[] = sorted.map((record) => ({
       id: record.id,
       key: `${record.id}-${record.part_number}`,
       article: record.part_number,
@@ -940,9 +967,75 @@ export function App() {
       source: record.source_url ?? '—',
       stageHistory: record.stage_history ?? [],
       debugLog: record.debug_log ?? null,
-      createdAt: record.created_at
+      createdAt: record.created_at,
+      origin: 'history',
+      canDelete: true
     }))
-  }, [history])
+
+    const historyKeySet = new Set(
+      historyRows.map(
+        (row) => `${row.article}__${row.manufacturer}__${row.submitted}__${row.service}`
+      )
+    )
+
+    const liveSearchRows: TableRowRecord[] = results
+      .filter((result) => result.part_number?.trim().length)
+      .filter(
+        (result) =>
+          !historyKeySet.has(
+            `${result.part_number}__${result.manufacturer_name ?? '—'}__${
+              result.submitted_manufacturer ?? '—'
+            }__${
+              result.search_stage
+                ? stageLabels[result.search_stage as StageName] ?? result.search_stage
+                : '—'
+            }`
+          )
+      )
+      .map((result, index) => ({
+        id: -(index + 1),
+        key: `search-${index}-${result.part_number}-${result.manufacturer_name ?? '—'}`,
+        article: result.part_number,
+        manufacturer: result.manufacturer_name ?? '—',
+        alias: result.alias_used ?? '—',
+        submitted: result.submitted_manufacturer ?? '—',
+        matchStatus: (result.match_status ?? null) as MatchStatus,
+        matchConfidence: result.match_confidence ?? null,
+        confidence: result.confidence ?? null,
+        service: result.search_stage
+          ? stageLabels[result.search_stage as StageName] ?? result.search_stage
+          : 'Свежий поиск',
+        source: result.source_url ?? '—',
+        stageHistory: result.stage_history ?? [],
+        debugLog: result.debug_log ?? null,
+        createdAt: recentSearchTimestamp ?? new Date().toISOString(),
+        origin: 'search',
+        canDelete: false
+      }))
+
+    const uploadRows: TableRowRecord[] = uploadedItems
+      .filter((item) => item.part_number.trim().length)
+      .map((item, index) => ({
+        id: -1000 - index,
+        key: `upload-${index}-${item.part_number}-${item.manufacturer_hint ?? '—'}`,
+        article: item.part_number,
+        manufacturer: item.manufacturer_hint ?? '—',
+        alias: '—',
+        submitted: item.manufacturer_hint ?? '—',
+        matchStatus: null,
+        matchConfidence: null,
+        confidence: null,
+        service: 'Импорт из Excel · черновик',
+        source: '—',
+        stageHistory: [],
+        debugLog: null,
+        createdAt: recentUploadTimestamp ?? new Date().toISOString(),
+        origin: 'upload',
+        canDelete: false
+      }))
+
+    return [...uploadRows, ...liveSearchRows, ...historyRows]
+  }, [history, recentSearchTimestamp, recentUploadTimestamp, results, uploadedItems])
   const filteredTableData = useMemo(() => {
     const articleTerm = tableFilters.article.trim().toLowerCase()
     const manufacturerTerm = tableFilters.manufacturer.trim().toLowerCase()
@@ -999,11 +1092,6 @@ export function App() {
   const [stageProgress, setStageProgress] = useState<StageProgressEntry[]>(() =>
     STAGE_SEQUENCE.map((name) => ({ name, state: 'idle' }))
   )
-  const [uploadState, setUploadState] = useState<{ status: 'idle' | 'uploading' | 'done' | 'error'; message?: string }>(
-    { status: 'idle' }
-  )
-  const [uploadedItems, setUploadedItems] = useState<PartRequestItem[]>([])
-  const uploadInputRef = useRef<HTMLInputElement | null>(null)
   const [currentService, setCurrentService] = useState('—')
   const progressTimerRef = useRef<number | null>(null)
   const progressIndexRef = useRef(0)
@@ -1049,6 +1137,10 @@ export function App() {
   }
 
   const handleDeletePartRow = async (id: number) => {
+    if (id <= 0) {
+      setSnackbar('Черновик поиска нельзя удалить — измените файл или выполните новый поиск')
+      return
+    }
     try {
       await deletePartById(id)
       await refreshHistory()
@@ -1282,6 +1374,7 @@ export function App() {
     let latestStageHistory: StageStatus[] | undefined
     try {
       const response = await searchParts(filled, debugMode)
+      setRecentSearchTimestamp(new Date().toISOString())
       latestStageHistory = response.results[0]?.stage_history
       setResults(response.results)
       await refreshHistory()
@@ -1328,6 +1421,7 @@ export function App() {
       const baseMessage = `Импортировано: ${response.imported}, пропущено: ${response.skipped}`
       const errorMessage = response.errors.length ? ` Ошибки: ${response.errors.join(', ')}` : ''
       const statusMessage = response.status_message ?? `Файл ${file.name} обработан`
+      setRecentUploadTimestamp(new Date().toISOString())
       setUploadedItems(response.items ?? [])
       setItems((response.items ?? []).length ? response.items : [{ ...emptyItem }])
       setUploadState({ status: 'done', message: `${statusMessage}. Готово к поиску` })
@@ -1911,73 +2005,114 @@ export function App() {
                   </ToggleButtonGroup>
                 </Stack>
               </Box>
-              <Stack
-                direction={{ xs: 'column', lg: 'row' }}
-                spacing={1.5}
-                alignItems={{ xs: 'stretch', lg: 'center' }}
-                justifyContent="space-between"
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' },
+                  gap: 1.5,
+                  alignItems: 'stretch'
+                }}
               >
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
-                  <Button startIcon={<Upload />} variant="contained" onClick={() => uploadInputRef.current?.click()}>
-                    Выбрать файл
-                  </Button>
-                  <input
-                    ref={uploadInputRef}
-                    hidden
-                    type="file"
-                    accept=".xls,.xlsx"
-                    onChange={handleUpload}
-                  />
-                  <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
-                    Excel шаблон
-                  </Button>
-                  <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
-                    Выгрузить Excel
-                  </Button>
-                  <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('pdf')}>
-                    Выгрузить PDF
-                  </Button>
-                  <Button startIcon={<AddCircleOutline />} variant="text" onClick={addRow}>
-                    Добавить строку
-                  </Button>
+                <Stack
+                  spacing={1}
+                  sx={{
+                    p: 1,
+                    borderRadius: 3,
+                    border: '1px dashed',
+                    borderColor: 'divider',
+                    backgroundColor: (theme) => alpha(theme.palette.background.default, 0.6)
+                  }}
+                >
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Панель действий: загрузка, добавление строк и экспорт всегда под рукой.
+                  </Typography>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
+                    <Button startIcon={<Upload />} variant="contained" onClick={() => uploadInputRef.current?.click()}>
+                      Выбрать файл
+                    </Button>
+                    <input
+                      ref={uploadInputRef}
+                      hidden
+                      type="file"
+                      accept=".xls,.xlsx"
+                      onChange={handleUpload}
+                    />
+                    <Button startIcon={<AddCircleOutline />} variant="outlined" onClick={addRow}>
+                      Добавить строку
+                    </Button>
+                    <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
+                      Excel шаблон
+                    </Button>
+                    <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
+                      Выгрузить Excel
+                    </Button>
+                    <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('pdf')}>
+                      Выгрузить PDF
+                    </Button>
+                    <Button
+                      startIcon={<DeleteForever />}
+                      variant="text"
+                      onClick={() => {
+                        setUploadedItems([])
+                        setRecentUploadTimestamp(null)
+                        setUploadState({ status: 'idle' })
+                      }}
+                    >
+                      Очистить импорт
+                    </Button>
+                  </Stack>
                 </Stack>
                 <Stack
-                  direction={{ xs: 'column', sm: 'row' }}
                   spacing={1}
-                  alignItems={{ xs: 'stretch', sm: 'center' }}
-                  justifyContent="flex-end"
+                  sx={{
+                    p: 1,
+                    borderRadius: 3,
+                    border: '1px dashed',
+                    borderColor: 'divider',
+                    backgroundColor: (theme) => alpha(theme.palette.background.default, 0.6)
+                  }}
                 >
-                  <Chip
-                    label={
-                      uploadState.message ??
-                      (uploadState.status === 'idle'
-                        ? 'Файл не выбран'
-                        : uploadState.status === 'done'
-                        ? 'Файл загружен'
-                        : 'Ошибка загрузки')
-                    }
-                    color={
-                      uploadState.status === 'done'
-                        ? 'success'
-                        : uploadState.status === 'uploading'
-                        ? 'info'
-                        : uploadState.status === 'idle'
-                        ? 'default'
-                        : 'error'
-                    }
-                    variant="outlined"
-                  />
-                  <Button
-                    startIcon={<Search />}
-                    variant="contained"
-                    color="secondary"
-                    disabled={uploadState.status !== 'done' || !uploadedItems.length || loading}
-                    onClick={runUploadedSearch}
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Загруженные строки сразу появляются в таблице. Запустите поиск или обновите файл.
+                  </Typography>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1}
+                    alignItems={{ xs: 'stretch', sm: 'center' }}
+                    justifyContent="flex-end"
                   >
-                    Запуск поиска
-                  </Button>
+                    <Chip
+                      label={
+                        uploadState.message ??
+                        (uploadState.status === 'idle'
+                          ? 'Файл не выбран'
+                          : uploadState.status === 'done'
+                          ? 'Файл загружен'
+                          : 'Ошибка загрузки')
+                      }
+                      color={
+                        uploadState.status === 'done'
+                          ? 'success'
+                          : uploadState.status === 'uploading'
+                          ? 'info'
+                          : uploadState.status === 'idle'
+                          ? 'default'
+                          : 'error'
+                      }
+                      variant="outlined"
+                    />
+                    <Button
+                      startIcon={<Search />}
+                      variant="contained"
+                      color="secondary"
+                      disabled={uploadState.status !== 'done' || !uploadedItems.length || loading}
+                      onClick={runUploadedSearch}
+                    >
+                      Запуск поиска
+                    </Button>
+                  </Stack>
                 </Stack>
-              </Stack>
+              </Box>
               {filteredTableData.length === 0 ? (
                 <Typography color="text.secondary">Пока нет данных. Выполните поиск или импорт.</Typography>
               ) : (
@@ -2002,7 +2137,8 @@ export function App() {
                     component={Paper}
                     variant="outlined"
                     sx={{
-                      maxHeight: { xs: '60vh', lg: '70vh' },
+                      maxHeight: { xs: '65vh', lg: '75vh' },
+                      minHeight: { md: '50vh' },
                       borderRadius: 3,
                       overflow: 'auto',
                       borderColor: 'divider',
@@ -2201,6 +2337,13 @@ export function App() {
                               : row.confidence
                               ? row.confidence * 100
                               : null
+                          const isDraft = row.origin !== 'history'
+                          const originChip =
+                            row.origin === 'upload'
+                              ? { label: 'Черновик Excel', color: 'info' as const }
+                              : row.origin === 'search'
+                              ? { label: 'Новый результат поиска', color: 'secondary' as const }
+                              : { label: 'История', color: 'default' as const }
                           return (
                             <Fragment key={row.key}>
                               <TableRow
@@ -2215,6 +2358,9 @@ export function App() {
                                     }
                                     if (row.matchStatus === 'pending') {
                                       return alpha(theme.palette.warning.light, 0.12)
+                                    }
+                                    if (isDraft) {
+                                      return alpha(theme.palette.info.light, 0.08)
                                     }
                                     return undefined
                                   }
@@ -2236,6 +2382,18 @@ export function App() {
                                     <Typography variant="caption" color="text.secondary">
                                       Добавлено: {new Date(row.createdAt).toLocaleString()}
                                     </Typography>
+                                    <Stack direction="row" spacing={0.75} flexWrap="wrap">
+                                      <Chip size="small" label={originChip.label} color={originChip.color} variant="outlined" />
+                                      {isDraft && (
+                                        <Chip
+                                          size="small"
+                                          label={row.service}
+                                          color="info"
+                                          variant="outlined"
+                                          icon={<Bolt fontSize="small" />}
+                                        />
+                                      )}
+                                    </Stack>
                                   </Stack>
                                 </TableCell>
                                 <TableCell>
@@ -2333,14 +2491,23 @@ export function App() {
                                   )}
                                 </TableCell>
                                 <TableCell align="right">
-                                  <Tooltip title="Удалить строку">
-                                    <IconButton
-                                      size="small"
-                                      color="error"
-                                      onClick={() => handleDeletePartRow(row.id)}
-                                    >
-                                      <DeleteForever fontSize="small" />
-                                    </IconButton>
+                                  <Tooltip
+                                    title={
+                                      row.canDelete
+                                        ? 'Удалить строку'
+                                        : 'Черновик появится в таблице после выполнения поиска'
+                                    }
+                                  >
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        color="error"
+                                        disabled={!row.canDelete}
+                                        onClick={() => handleDeletePartRow(row.id)}
+                                      >
+                                        <DeleteForever fontSize="small" />
+                                      </IconButton>
+                                    </span>
                                   </Tooltip>
                                 </TableCell>
                               </TableRow>
