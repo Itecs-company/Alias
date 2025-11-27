@@ -1,4 +1,12 @@
-import { Fragment, SyntheticEvent, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Fragment,
+  SyntheticEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  MouseEvent as ReactMouseEvent
+} from 'react'
 import { keyframes } from '@emotion/react'
 import {
   AppBar,
@@ -58,6 +66,7 @@ import {
   VisibilityOff,
   Visibility,
   ListAlt,
+  DragIndicator,
   Minimize,
   OpenInFull,
   FilterAlt
@@ -948,6 +957,10 @@ export function App() {
   const progressWindowRef = useRef<HTMLDivElement | null>(null)
   const [selectedRows, setSelectedRows] = useState<number[]>([])
   const [tableWindowMode, setTableWindowMode] = useState<'normal' | 'maximized'>('normal')
+  const [tablePosition, setTablePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const tableWindowRef = useRef<HTMLDivElement | null>(null)
+  const tablePositionRef = useRef(tablePosition)
+  const [isTableDragging, setIsTableDragging] = useState(false)
   const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
   const [logs, setLogs] = useState<SearchLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
@@ -1194,6 +1207,47 @@ export function App() {
     setTableSizeOverride((prev) => ({ ...prev, width: true }))
   }
 
+  const syncTableSizeFromRef = () => {
+    if (tableWindowMode === 'maximized') return
+    if (!tableWindowRef.current || typeof window === 'undefined') return
+    const rect = tableWindowRef.current.getBoundingClientRect()
+    const widthPercent = Math.round((rect.width / window.innerWidth) * 100)
+    setTableSize({
+      height: Math.max(320, Math.round(rect.height)),
+      width: Math.min(Math.max(widthPercent, 60), 150)
+    })
+    setTableSizeOverride({ height: true, width: true })
+  }
+
+  const handleTableManualResizeEnd = () => {
+    if (tableWindowMode === 'maximized') return
+    syncTableSizeFromRef()
+  }
+
+  const handleTableDragStart = (event: ReactMouseEvent) => {
+    if (tableWindowMode === 'maximized') return
+    event.preventDefault()
+    const startX = event.clientX
+    const startY = event.clientY
+    const initialPosition = tablePositionRef.current
+    setIsTableDragging(true)
+
+    const handleMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX
+      const deltaY = moveEvent.clientY - startY
+      setTablePosition({ x: initialPosition.x + deltaX, y: initialPosition.y + deltaY })
+    }
+
+    const handleUp = () => {
+      setIsTableDragging(false)
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleUp)
+    }
+
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleUp)
+  }
+
   const resetTableSize = () => {
     const autoSize = computeAutoTableSize()
     setTableSize(autoSize)
@@ -1414,6 +1468,16 @@ export function App() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [tableSizeOverride])
+
+  useEffect(() => {
+    tablePositionRef.current = tablePosition
+  }, [tablePosition])
+
+  useEffect(() => {
+    if (tableWindowMode === 'maximized') {
+      setTablePosition({ x: 0, y: 0 })
+    }
+  }, [tableWindowMode])
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -2288,9 +2352,9 @@ export function App() {
                         </Typography>
                         <Slider
                           size="small"
-                          min={80}
-                          max={110}
-                          step={1}
+                          min={60}
+                          max={140}
+                          step={2}
                           valueLabelDisplay="auto"
                           value={tableSize.width}
                           onChange={handleTableWidthChange}
@@ -2303,9 +2367,9 @@ export function App() {
                         </Typography>
                         <Slider
                           size="small"
-                          min={380}
-                          max={960}
-                          step={10}
+                          min={320}
+                          max={1200}
+                          step={20}
                           valueLabelDisplay="auto"
                           value={tableSize.height}
                           onChange={handleTableHeightChange}
@@ -2314,6 +2378,18 @@ export function App() {
                       </Stack>
                     </Stack>
                     <Stack direction="row" spacing={1} alignItems="center">
+                      <Tooltip title="Переместить таблицу в любое место">
+                        <span>
+                          <IconButton
+                            color={isTableDragging ? 'secondary' : 'default'}
+                            onMouseDown={handleTableDragStart}
+                            disabled={tableWindowMode === 'maximized'}
+                            sx={{ cursor: tableWindowMode === 'maximized' ? 'not-allowed' : 'grab' }}
+                          >
+                            <DragIndicator fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                       <Tooltip
                         title={
                           tableWindowMode === 'maximized'
@@ -2343,6 +2419,8 @@ export function App() {
                   <TableContainer
                     component={Paper}
                     variant="outlined"
+                    ref={tableWindowRef}
+                    onMouseUpCapture={handleTableManualResizeEnd}
                     sx={{
                       borderRadius: tableWindowMode === 'maximized' ? 0 : 3,
                       overflow: 'auto',
@@ -2355,7 +2433,12 @@ export function App() {
                       minWidth: tableWindowMode === 'maximized' ? '100%' : '80%',
                       minHeight: 320,
                       resize: tableWindowMode === 'normal' ? 'both' : 'none',
-                      transition: 'height 200ms ease, width 200ms ease',
+                      transition: 'height 200ms ease, width 200ms ease, transform 200ms ease',
+                      transform:
+                        tableWindowMode === 'maximized'
+                          ? 'none'
+                          : `translate(${tablePosition.x}px, ${tablePosition.y}px)`,
+                      cursor: isTableDragging ? 'grabbing' : 'default',
                       boxShadow: (theme) => theme.shadows[tableWindowMode === 'maximized' ? 10 : 1],
                       position: tableWindowMode === 'maximized' ? 'fixed' : 'relative',
                       top: tableWindowMode === 'maximized' ? 80 : 'auto',
