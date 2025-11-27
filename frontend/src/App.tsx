@@ -2,6 +2,7 @@ import {
   Fragment,
   SyntheticEvent,
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -156,6 +157,34 @@ const matchStatusColor: Record<Exclude<MatchStatus, null>, 'success' | 'error' |
   mismatch: 'error',
   pending: 'warning'
 }
+
+type TableColumnKey =
+  | 'select'
+  | 'article'
+  | 'manufacturer'
+  | 'alias'
+  | 'submitted'
+  | 'matchStatus'
+  | 'confidence'
+  | 'service'
+  | 'source'
+  | 'stages'
+  | 'actions'
+
+const columnDefaults: Record<TableColumnKey, { defaultWidth: number; minWidth: number }> = {
+  select: { defaultWidth: 64, minWidth: 56 },
+  article: { defaultWidth: 160, minWidth: 120 },
+  manufacturer: { defaultWidth: 160, minWidth: 120 },
+  alias: { defaultWidth: 150, minWidth: 120 },
+  submitted: { defaultWidth: 150, minWidth: 120 },
+  matchStatus: { defaultWidth: 160, minWidth: 140 },
+  confidence: { defaultWidth: 140, minWidth: 120 },
+  service: { defaultWidth: 170, minWidth: 140 },
+  source: { defaultWidth: 220, minWidth: 160 },
+  stages: { defaultWidth: 230, minWidth: 180 },
+  actions: { defaultWidth: 140, minWidth: 120 }
+}
+const defaultRowHeight = 52
 
 type AuthState = { token: string; username: string; role: 'admin' | 'user' }
 const AUTH_STORAGE_KEY = 'aliasfinder:auth'
@@ -961,6 +990,19 @@ export function App() {
   const tableWindowRef = useRef<HTMLDivElement | null>(null)
   const tablePositionRef = useRef(tablePosition)
   const [isTableDragging, setIsTableDragging] = useState(false)
+  const [columnWidths, setColumnWidths] = useState<Record<TableColumnKey, number>>(() =>
+    Object.entries(columnDefaults).reduce(
+      (acc, [key, config]) => ({ ...acc, [key]: config.defaultWidth }),
+      {} as Record<TableColumnKey, number>
+    )
+  )
+  const [rowHeights, setRowHeights] = useState<Record<number, number>>({})
+  const resizingColumnRef = useRef<TableColumnKey | null>(null)
+  const resizingRowRef = useRef<number | null>(null)
+  const resizeStartXRef = useRef(0)
+  const resizeStartYRef = useRef(0)
+  const resizeStartWidthRef = useRef(0)
+  const resizeStartHeightRef = useRef(0)
   const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
   const [logs, setLogs] = useState<SearchLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
@@ -1224,6 +1266,60 @@ export function App() {
     syncTableSizeFromRef()
   }
 
+  const handleColumnResizeMove = useCallback(
+    (moveEvent: MouseEvent) => {
+      if (!resizingColumnRef.current) return
+      const columnKey = resizingColumnRef.current
+      const deltaX = moveEvent.clientX - resizeStartXRef.current
+      const config = columnDefaults[columnKey]
+      const nextWidth = Math.max(config.minWidth, resizeStartWidthRef.current + deltaX)
+      setColumnWidths((prev) => ({ ...prev, [columnKey]: nextWidth }))
+    },
+    []
+  )
+
+  const handleColumnResizeEnd = useCallback(() => {
+    resizingColumnRef.current = null
+    window.removeEventListener('mousemove', handleColumnResizeMove)
+    window.removeEventListener('mouseup', handleColumnResizeEnd)
+  }, [handleColumnResizeMove])
+
+  const handleColumnResizeStart = (columnKey: TableColumnKey, event: ReactMouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    resizingColumnRef.current = columnKey
+    resizeStartXRef.current = event.clientX
+    resizeStartWidthRef.current = columnWidths[columnKey] ?? columnDefaults[columnKey].defaultWidth
+    window.addEventListener('mousemove', handleColumnResizeMove)
+    window.addEventListener('mouseup', handleColumnResizeEnd)
+  }
+
+  const handleRowResizeMove = useCallback((moveEvent: MouseEvent) => {
+    if (resizingRowRef.current === null) return
+    const deltaY = moveEvent.clientY - resizeStartYRef.current
+    const nextHeight = Math.max(36, resizeStartHeightRef.current + deltaY)
+    const rowId = resizingRowRef.current
+    setRowHeights((prev) => ({ ...prev, [rowId]: nextHeight }))
+  }, [])
+
+  const handleRowResizeEnd = useCallback(() => {
+    resizingRowRef.current = null
+    window.removeEventListener('mousemove', handleRowResizeMove)
+    window.removeEventListener('mouseup', handleRowResizeEnd)
+  }, [handleRowResizeMove])
+
+  const handleRowResizeStart = (rowId: number, event: ReactMouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    resizingRowRef.current = rowId
+    resizeStartYRef.current = event.clientY
+    resizeStartHeightRef.current = rowHeights[rowId] ?? defaultRowHeight
+    window.addEventListener('mousemove', handleRowResizeMove)
+    window.addEventListener('mouseup', handleRowResizeEnd)
+  }
+
+  const getColumnWidth = (key: TableColumnKey) => columnWidths[key] ?? columnDefaults[key].defaultWidth
+
   const handleTableDragStart = (event: ReactMouseEvent) => {
     if (tableWindowMode === 'maximized') return
     event.preventDefault()
@@ -1257,6 +1353,15 @@ export function App() {
   const toggleTableFullscreen = () => {
     setTableWindowMode((prev) => (prev === 'maximized' ? 'normal' : 'maximized'))
   }
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('mousemove', handleColumnResizeMove)
+      window.removeEventListener('mouseup', handleColumnResizeEnd)
+      window.removeEventListener('mousemove', handleRowResizeMove)
+      window.removeEventListener('mouseup', handleRowResizeEnd)
+    }
+  }, [handleColumnResizeEnd, handleColumnResizeMove, handleRowResizeEnd, handleRowResizeMove])
 
   const handleSelectAllRows = (checked: boolean) => {
     setSelectedRows(checked ? filteredTableData.map((row) => row.id) : [])
@@ -2448,10 +2553,18 @@ export function App() {
                       backgroundColor: (theme) => theme.palette.background.paper
                     }}
                   >
-                      <Table stickyHeader size="small">
+                      <Table stickyHeader size="small" sx={{ tableLayout: 'fixed' }}>
                         <TableHead>
                           <TableRow>
-                            <TableCell padding="checkbox">
+                            <TableCell
+                              padding="checkbox"
+                              sx={{
+                                position: 'relative',
+                                width: getColumnWidth('select'),
+                                minWidth: columnDefaults.select.minWidth,
+                                pr: 3
+                              }}
+                            >
                               <Checkbox
                                 color="primary"
                                 indeterminate={
@@ -2462,27 +2575,277 @@ export function App() {
                                 }
                                 onChange={(event) => handleSelectAllRows(event.target.checked)}
                               />
+                              <Box
+                                onMouseDown={(event) => handleColumnResizeStart('select', event)}
+                                sx={{
+                                  position: 'absolute',
+                                  right: -6,
+                                  top: 0,
+                                  width: 12,
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2
+                                }}
+                              />
                             </TableCell>
-                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Артикул</TableCell>
-                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Производитель</TableCell>
-                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Alias</TableCell>
-                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Заявлено</TableCell>
-                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Статус</TableCell>
-                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Достоверность</TableCell>
-                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Сервис</TableCell>
-                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Источник</TableCell>
-                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }}>Стадии</TableCell>
-                            <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase' }} align="right">
+                            <TableCell
+                              sx={{
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                position: 'relative',
+                                width: getColumnWidth('article'),
+                                minWidth: columnDefaults.article.minWidth,
+                                pr: 3
+                              }}
+                            >
+                              Артикул
+                              <Box
+                                onMouseDown={(event) => handleColumnResizeStart('article', event)}
+                                sx={{
+                                  position: 'absolute',
+                                  right: -6,
+                                  top: 0,
+                                  width: 12,
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell
+                              sx={{
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                position: 'relative',
+                                width: getColumnWidth('manufacturer'),
+                                minWidth: columnDefaults.manufacturer.minWidth,
+                                pr: 3
+                              }}
+                            >
+                              Производитель
+                              <Box
+                                onMouseDown={(event) => handleColumnResizeStart('manufacturer', event)}
+                                sx={{
+                                  position: 'absolute',
+                                  right: -6,
+                                  top: 0,
+                                  width: 12,
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell
+                              sx={{
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                position: 'relative',
+                                width: getColumnWidth('alias'),
+                                minWidth: columnDefaults.alias.minWidth,
+                                pr: 3
+                              }}
+                            >
+                              Alias
+                              <Box
+                                onMouseDown={(event) => handleColumnResizeStart('alias', event)}
+                                sx={{
+                                  position: 'absolute',
+                                  right: -6,
+                                  top: 0,
+                                  width: 12,
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell
+                              sx={{
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                position: 'relative',
+                                width: getColumnWidth('submitted'),
+                                minWidth: columnDefaults.submitted.minWidth,
+                                pr: 3
+                              }}
+                            >
+                              Заявлено
+                              <Box
+                                onMouseDown={(event) => handleColumnResizeStart('submitted', event)}
+                                sx={{
+                                  position: 'absolute',
+                                  right: -6,
+                                  top: 0,
+                                  width: 12,
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell
+                              sx={{
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                position: 'relative',
+                                width: getColumnWidth('matchStatus'),
+                                minWidth: columnDefaults.matchStatus.minWidth,
+                                pr: 3
+                              }}
+                            >
+                              Статус
+                              <Box
+                                onMouseDown={(event) => handleColumnResizeStart('matchStatus', event)}
+                                sx={{
+                                  position: 'absolute',
+                                  right: -6,
+                                  top: 0,
+                                  width: 12,
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell
+                              sx={{
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                position: 'relative',
+                                width: getColumnWidth('confidence'),
+                                minWidth: columnDefaults.confidence.minWidth,
+                                pr: 3
+                              }}
+                            >
+                              Достоверность
+                              <Box
+                                onMouseDown={(event) => handleColumnResizeStart('confidence', event)}
+                                sx={{
+                                  position: 'absolute',
+                                  right: -6,
+                                  top: 0,
+                                  width: 12,
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell
+                              sx={{
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                position: 'relative',
+                                width: getColumnWidth('service'),
+                                minWidth: columnDefaults.service.minWidth,
+                                pr: 3
+                              }}
+                            >
+                              Сервис
+                              <Box
+                                onMouseDown={(event) => handleColumnResizeStart('service', event)}
+                                sx={{
+                                  position: 'absolute',
+                                  right: -6,
+                                  top: 0,
+                                  width: 12,
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell
+                              sx={{
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                position: 'relative',
+                                width: getColumnWidth('source'),
+                                minWidth: columnDefaults.source.minWidth,
+                                pr: 3
+                              }}
+                            >
+                              Источник
+                              <Box
+                                onMouseDown={(event) => handleColumnResizeStart('source', event)}
+                                sx={{
+                                  position: 'absolute',
+                                  right: -6,
+                                  top: 0,
+                                  width: 12,
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell
+                              sx={{
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                position: 'relative',
+                                width: getColumnWidth('stages'),
+                                minWidth: columnDefaults.stages.minWidth,
+                                pr: 3
+                              }}
+                            >
+                              Стадии
+                              <Box
+                                onMouseDown={(event) => handleColumnResizeStart('stages', event)}
+                                sx={{
+                                  position: 'absolute',
+                                  right: -6,
+                                  top: 0,
+                                  width: 12,
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell
+                              sx={{
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                position: 'relative',
+                                width: getColumnWidth('actions'),
+                                minWidth: columnDefaults.actions.minWidth,
+                                pr: 3
+                              }}
+                              align="right"
+                            >
                               Действия
+                              <Box
+                                onMouseDown={(event) => handleColumnResizeStart('actions', event)}
+                                sx={{
+                                  position: 'absolute',
+                                  right: -6,
+                                  top: 0,
+                                  width: 12,
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2
+                                }}
+                              />
                             </TableCell>
                           </TableRow>
                           <TableRow>
-                            <TableCell padding="checkbox">
+                            <TableCell
+                              padding="checkbox"
+                              sx={{
+                                width: getColumnWidth('select'),
+                                minWidth: columnDefaults.select.minWidth,
+                                pr: 2
+                              }}
+                            >
                               <Typography variant="caption" color="text.secondary">
                                 Фильтр
                               </Typography>
                             </TableCell>
-                            <TableCell>
+                            <TableCell
+                              sx={{ width: getColumnWidth('article'), minWidth: columnDefaults.article.minWidth }}
+                            >
                               <TextField
                                 fullWidth
                                 size="small"
@@ -2500,7 +2863,12 @@ export function App() {
                                 }}
                               />
                             </TableCell>
-                            <TableCell>
+                            <TableCell
+                              sx={{
+                                width: getColumnWidth('manufacturer'),
+                                minWidth: columnDefaults.manufacturer.minWidth
+                              }}
+                            >
                               <TextField
                                 fullWidth
                                 size="small"
@@ -2518,7 +2886,7 @@ export function App() {
                                 }}
                               />
                             </TableCell>
-                            <TableCell>
+                            <TableCell sx={{ width: getColumnWidth('alias'), minWidth: columnDefaults.alias.minWidth }}>
                               <TextField
                                 fullWidth
                                 size="small"
@@ -2534,7 +2902,9 @@ export function App() {
                                 }}
                               />
                             </TableCell>
-                            <TableCell>
+                            <TableCell
+                              sx={{ width: getColumnWidth('submitted'), minWidth: columnDefaults.submitted.minWidth }}
+                            >
                               <TextField
                                 fullWidth
                                 size="small"
@@ -2552,7 +2922,12 @@ export function App() {
                                 }}
                               />
                             </TableCell>
-                            <TableCell>
+                            <TableCell
+                              sx={{
+                                width: getColumnWidth('matchStatus'),
+                                minWidth: columnDefaults.matchStatus.minWidth
+                              }}
+                            >
                               <TextField
                                 fullWidth
                                 size="small"
@@ -2571,12 +2946,14 @@ export function App() {
                                 <option value="none">Нет данных</option>
                               </TextField>
                             </TableCell>
-                            <TableCell>
+                            <TableCell
+                              sx={{ width: getColumnWidth('confidence'), minWidth: columnDefaults.confidence.minWidth }}
+                            >
                               <Typography variant="caption" color="text.secondary">
                                 Поиск не требуется
                               </Typography>
                             </TableCell>
-                            <TableCell>
+                            <TableCell sx={{ width: getColumnWidth('service'), minWidth: columnDefaults.service.minWidth }}>
                               <TextField
                                 fullWidth
                                 size="small"
@@ -2594,7 +2971,7 @@ export function App() {
                                 }}
                               />
                             </TableCell>
-                            <TableCell>
+                            <TableCell sx={{ width: getColumnWidth('source'), minWidth: columnDefaults.source.minWidth }}>
                               <TextField
                                 fullWidth
                                 size="small"
@@ -2612,12 +2989,14 @@ export function App() {
                                 }}
                               />
                             </TableCell>
-                            <TableCell>
+                            <TableCell sx={{ width: getColumnWidth('stages'), minWidth: columnDefaults.stages.minWidth }}>
                               <Typography variant="caption" color="text.secondary">
                                 Стадии по результату
                               </Typography>
                             </TableCell>
-                            <TableCell />
+                            <TableCell
+                              sx={{ width: getColumnWidth('actions'), minWidth: columnDefaults.actions.minWidth }}
+                            />
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -2655,10 +3034,31 @@ export function App() {
                                         return alpha(theme.palette.info.light, 0.08)
                                       }
                                       return undefined
+                                    },
+                                    height: rowHeights[row.id] ?? defaultRowHeight
+                                  }}
+                                  onMouseMove={(event) => {
+                                    const rect = event.currentTarget.getBoundingClientRect()
+                                    const nearBottom = rect.bottom - event.clientY <= 6
+                                    event.currentTarget.style.cursor = nearBottom ? 'row-resize' : ''
+                                  }}
+                                  onMouseLeave={(event) => {
+                                    event.currentTarget.style.cursor = ''
+                                  }}
+                                  onMouseDown={(event) => {
+                                    const rect = event.currentTarget.getBoundingClientRect()
+                                    if (rect.bottom - event.clientY <= 6) {
+                                      handleRowResizeStart(row.id, event)
                                     }
                                   }}
                                 >
-                                  <TableCell padding="checkbox">
+                                  <TableCell
+                                    padding="checkbox"
+                                    sx={{
+                                      width: getColumnWidth('select'),
+                                      minWidth: columnDefaults.select.minWidth
+                                    }}
+                                  >
                                     <Checkbox
                                       color="primary"
                                       checked={isSelected}
@@ -2666,7 +3066,13 @@ export function App() {
                                       inputProps={{ 'aria-label': `Выбрать ${row.article}` }}
                                     />
                                   </TableCell>
-                                  <TableCell sx={{ fontWeight: 700 }}>
+                                  <TableCell
+                                    sx={{
+                                      fontWeight: 700,
+                                      width: getColumnWidth('article'),
+                                      minWidth: columnDefaults.article.minWidth
+                                    }}
+                                  >
                                     <Stack spacing={0.5}>
                                       <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                                         {row.article}
@@ -2688,7 +3094,12 @@ export function App() {
                                       </Stack>
                                     </Stack>
                                   </TableCell>
-                                  <TableCell>
+                                  <TableCell
+                                    sx={{
+                                      width: getColumnWidth('manufacturer'),
+                                      minWidth: columnDefaults.manufacturer.minWidth
+                                    }}
+                                  >
                                     <Stack spacing={0.5}>
                                       <Typography sx={{ fontWeight: 600 }}>{row.manufacturer}</Typography>
                                       <Typography variant="body2" color="text.secondary">
@@ -2696,9 +3107,25 @@ export function App() {
                                       </Typography>
                                     </Stack>
                                   </TableCell>
-                                  <TableCell>{row.alias}</TableCell>
-                                  <TableCell>{row.submitted}</TableCell>
-                                  <TableCell>
+                                  <TableCell
+                                    sx={{ width: getColumnWidth('alias'), minWidth: columnDefaults.alias.minWidth }}
+                                  >
+                                    {row.alias}
+                                  </TableCell>
+                                  <TableCell
+                                    sx={{
+                                      width: getColumnWidth('submitted'),
+                                      minWidth: columnDefaults.submitted.minWidth
+                                    }}
+                                  >
+                                    {row.submitted}
+                                  </TableCell>
+                                  <TableCell
+                                    sx={{
+                                      width: getColumnWidth('matchStatus'),
+                                      minWidth: columnDefaults.matchStatus.minWidth
+                                    }}
+                                  >
                                     {row.matchStatus ? (
                                       <Chip
                                         size="small"
@@ -2710,10 +3137,17 @@ export function App() {
                                       <Chip size="small" label="нет данных" variant="outlined" />
                                     )}
                                   </TableCell>
-                                  <TableCell>
+                                  <TableCell
+                                    sx={{
+                                      width: getColumnWidth('confidence'),
+                                      minWidth: columnDefaults.confidence.minWidth
+                                    }}
+                                  >
                                     {confidenceValue !== null ? `${confidenceValue.toFixed(1)}%` : '—'}
                                   </TableCell>
-                                  <TableCell>
+                                  <TableCell
+                                    sx={{ width: getColumnWidth('service'), minWidth: columnDefaults.service.minWidth }}
+                                  >
                                     <Stack spacing={0.5}>
                                       <Typography>{row.service}</Typography>
                                       <Typography variant="caption" color="text.secondary">
@@ -2721,12 +3155,16 @@ export function App() {
                                       </Typography>
                                     </Stack>
                                   </TableCell>
-                                  <TableCell>
+                                  <TableCell
+                                    sx={{ width: getColumnWidth('source'), minWidth: columnDefaults.source.minWidth }}
+                                  >
                                     <Typography variant="body2" noWrap title={row.source}>
                                       {row.source}
                                     </Typography>
                                   </TableCell>
-                                  <TableCell>
+                                  <TableCell
+                                    sx={{ width: getColumnWidth('stages'), minWidth: columnDefaults.stages.minWidth }}
+                                  >
                                     {row.stageHistory && row.stageHistory.length > 0 ? (
                                       <Stack direction="row" spacing={0.5} flexWrap="wrap">
                                         {row.stageHistory.map((stage, stageIndex) => (
@@ -2743,7 +3181,10 @@ export function App() {
                                       <Typography color="text.secondary">—</Typography>
                                     )}
                                   </TableCell>
-                                  <TableCell align="right">
+                                  <TableCell
+                                    align="right"
+                                    sx={{ width: getColumnWidth('actions'), minWidth: columnDefaults.actions.minWidth }}
+                                  >
                                     <Tooltip
                                       title={
                                         row.canDelete
