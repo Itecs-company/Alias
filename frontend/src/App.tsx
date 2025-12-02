@@ -1,10 +1,11 @@
-import { Fragment, SyntheticEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, SyntheticEvent, useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { keyframes } from '@emotion/react'
 import {
   AppBar,
   Avatar,
   Box,
   Button,
+  Checkbox,
   Chip,
   Container,
   CssBaseline,
@@ -253,6 +254,7 @@ export function App() {
   const [historyFilter, setHistoryFilter] = useState('')
   const [historyHidden, setHistoryHidden] = useState(false)
   const [manufacturerFilter, setManufacturerFilter] = useState<'all' | 'found' | 'missing'>('all')
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
   const [logs, setLogs] = useState<SearchLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
@@ -555,7 +557,7 @@ export function App() {
   const removeRow = (index: number) =>
     setItems((prev) => (prev.length === 1 ? prev : prev.filter((_, idx) => idx !== index)))
 
-  const performSearch = async (targets: PartRequestItem[]) => {
+  const performSearch = async (targets: PartRequestItem[], stages?: string[] | null) => {
     const filled = targets.filter((item) => item.part_number.trim().length)
     if (!filled.length) {
       setSnackbar('Добавьте хотя бы один артикул для поиска')
@@ -566,7 +568,7 @@ export function App() {
     startProgress()
     let latestStageHistory: StageStatus[] | undefined
     try {
-      const response = await searchParts(filled, debugMode)
+      const response = await searchParts(filled, debugMode, stages)
       latestStageHistory = response.results[0]?.stage_history
       setResults(response.results)
       await refreshHistory()
@@ -630,6 +632,39 @@ export function App() {
   const runUploadedSearch = async () => {
     await performSearch(uploadedItems)
   }
+
+  const handleSelectAll = useCallback((checked: boolean) => {
+    if (checked) {
+      setSelectedIds(new Set(filteredTableData.map(row => row.id)))
+    } else {
+      setSelectedIds(new Set())
+    }
+  }, [filteredTableData])
+
+  const handleSelectRow = useCallback((id: number, checked: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (checked) {
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
+      return next
+    })
+  }, [])
+
+  const handleSearchSelected = useCallback(async (stage: string) => {
+    if (selectedIds.size === 0) {
+      setSnackbar('Выберите хотя бы одну строку для поиска')
+      return
+    }
+    const selectedParts = history.filter(part => selectedIds.has(part.id)).map(part => ({
+      part_number: part.part_number,
+      manufacturer_hint: part.submitted_manufacturer ?? null
+    }))
+    await performSearch(selectedParts, [stage])
+    setSelectedIds(new Set())
+  }, [selectedIds, history])
 
   const handleExport = async (type: 'pdf' | 'excel') => {
     try {
@@ -851,403 +886,125 @@ export function App() {
             }}
           >
             <Stack spacing={3}>
-              <Stack
-                direction={{ xs: 'column', md: 'row' }}
-                spacing={3}
-                alignItems="flex-start"
-                justifyContent="space-between"
-              >
-                <Box>
-                  <Typography variant="h3" sx={{ fontWeight: 600 }}>
-                    Поиск производителей нового поколения
-                  </Typography>
-                  <Typography variant="body1" color="text.secondary" sx={{ mt: 1.5 }}>
-                    Анализируем datasheet-и, доменные подсказки и OpenAI, чтобы точно определить бренд по артикулу и алиасу.
-                  </Typography>
-                </Box>
-                <Stack direction="row" spacing={1.5} flexWrap="wrap">
-                  <Chip label="67% AI threshold" color="secondary" />
-                  <Chip label="SOCKS5 ready" variant="outlined" color="primary" />
-                  <Chip label="PDF · Excel экспорт" variant="outlined" />
-                </Stack>
-              </Stack>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <Avatar sx={{ bgcolor: 'primary.main', width: 48, height: 48, fontWeight: 600 }}>AI</Avatar>
-                <Typography color="text.secondary">
-                  Интернет → Google Custom Search → OpenAI. Каждый этап логируется и отображается в интерфейсе.
+              <Box>
+                <Typography variant="h3" sx={{ fontWeight: 600 }}>
+                  Управление товарами
                 </Typography>
-              </Stack>
-            </Stack>
-          </Paper>
-
-          <Grid container spacing={4}>
-            <Grid item xs={12} md={8}>
-              <Stack spacing={4}>
-                <Paper
-                  elevation={6}
-                  sx={{
-                    p: { xs: 3, md: 4 },
-                    borderRadius: 4,
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.95)
-                  }}
-                >
-                  <Stack spacing={3}>
-                    <Box>
-                      <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                        Поиск производителя по артикулу
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Добавьте несколько артикулов, задайте предположительный бренд или алиас и запустите оркестратор поиска.
-                      </Typography>
-                    </Box>
-                    <Stack spacing={2}>
-                      {items.map((item, index) => (
-                        <Paper
-                          key={index}
-                          variant="outlined"
-                          sx={{
-                            p: 2,
-                            borderRadius: 3,
-                            borderColor: 'divider',
-                            bgcolor: (theme) => alpha(theme.palette.background.default, 0.4)
-                          }}
-                        >
-                          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
-                            <TextField
-                              label="Артикул"
-                              value={item.part_number}
-                              onChange={(event) => handleItemChange(index, 'part_number', event.target.value)}
-                              fullWidth
-                              required
-                            />
-                            <TextField
-                              label="Предполагаемый производитель или алиас"
-                              value={item.manufacturer_hint ?? ''}
-                              onChange={(event) => handleItemChange(index, 'manufacturer_hint', event.target.value)}
-                              fullWidth
-                            />
-                            <Button variant="text" color="error" onClick={() => removeRow(index)}>
-                              Удалить
-                            </Button>
-                          </Stack>
-                        </Paper>
-                      ))}
-                    </Stack>
-                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-                      <Button startIcon={<AddCircleOutline />} variant="outlined" onClick={addRow}>
-                        Добавить строку
-                      </Button>
-                      <Button
-                        startIcon={<Search />}
-                        variant="contained"
-                        color="secondary"
-                        onClick={submitSearch}
-                        disabled={loading}
-                      >
-                        {loading ? 'Поиск…' : 'Запустить поиск'}
-                      </Button>
-                      <Button startIcon={<Bolt />} variant="text" onClick={submitManual}>
-                        Ручное добавление
-                      </Button>
-                    </Stack>
-                    <FormControlLabel
-                      control={<Switch checked={debugMode} onChange={() => setDebugMode((prev) => !prev)} />}
-                      label="Включить режим отладки"
-                    />
-                  </Stack>
-                </Paper>
-
-                <Paper
-                  elevation={6}
-                  sx={{
-                    p: { xs: 3, md: 4 },
-                    borderRadius: 4,
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    backgroundColor: (theme) => alpha(theme.palette.background.paper, 0.95)
-                  }}
-                >
-                  <Stack spacing={2}>
-                    <Box display="flex" alignItems="center" justifyContent="space-between">
-                      <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                        Прогресс поиска
-                      </Typography>
-                      <Chip label={`Текущий сервис: ${currentService}`} color="primary" variant="outlined" />
-                    </Box>
-                    {loading && <LinearProgress color="secondary" />}
-                    <Stepper alternativeLabel activeStep={activeStepperIndex} nonLinear sx={{ pt: 1 }}>
-                      {stageProgress.map((stage) => (
-                        <Step
-                          key={stage.name}
-                          completed={stage.state === 'done'}
-                          active={stage.state === 'active'}
-                        >
-                          <StepLabel
-                            error={stage.state === 'error'}
-                            optional={
-                              <Typography variant="caption" color="text.secondary">
-                                {stage.message ?? progressStateLabel[stage.state]}
-                              </Typography>
-                            }
-                          >
-                            {stageLabels[stage.name]}
-                          </StepLabel>
-                        </Step>
-                      ))}
-                    </Stepper>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap">
-                      {stageProgress.map((stage) => (
-                        <Chip
-                          key={stage.name}
-                          label={`${stageLabels[stage.name]} · ${progressStateLabel[stage.state]}`}
-                          color={progressStateColor[stage.state]}
-                          variant={stage.state === 'active' ? 'filled' : 'outlined'}
-                          title={stage.message ?? undefined}
-                        />
-                      ))}
-                    </Stack>
-                  </Stack>
-                </Paper>
-              </Stack>
-            </Grid>
-
-            <Grid item xs={12} md={4}>
-              <Stack spacing={4}>
-                <Paper
-                  elevation={6}
-                  sx={{
-                    p: { xs: 3, md: 4 },
-                    borderRadius: 4,
-                    border: '1px solid',
-                    borderColor: 'divider'
-                  }}
-                >
-                  <Stack spacing={2}>
-                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                      Загрузка из Excel
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Шаблон таблицы: обязательные столбцы «Article» и «Manufacturer/Alias». Эти же поля используются при выгрузке.
-                    </Typography>
-                    <Button component="label" startIcon={<Upload />} variant="contained">
-                      Выбрать файл
-                      <input hidden type="file" accept=".xls,.xlsx" onChange={handleUpload} />
-                    </Button>
-                    {uploadState.status !== 'idle' && (
-                      <Stack spacing={1} sx={{ width: '100%' }}>
-                        {uploadState.status === 'uploading' && <LinearProgress color="secondary" />}
-                        <Chip
-                          label={uploadState.message ?? 'Обработка файла'}
-                          color={
-                            uploadState.status === 'done'
-                              ? 'success'
-                              : uploadState.status === 'uploading'
-                              ? 'info'
-                              : 'error'
-                          }
-                          variant="outlined"
-                        />
-                      </Stack>
-                    )}
-                    <Button
-                      startIcon={<Search />}
-                      variant="contained"
-                      color="secondary"
-                      disabled={uploadState.status !== 'done' || !uploadedItems.length || loading}
-                      onClick={runUploadedSearch}
-                    >
-                      Запуск поиска
-                    </Button>
-                    <Typography variant="caption" color="text.secondary">
-                      После успешной загрузки таблицы кнопка «Запуск поиска» станет активной и выполнит поиск по загруженным записям.
-                    </Typography>
-                  </Stack>
-                </Paper>
-
-                <Paper
-                  elevation={6}
-                  sx={{
-                    p: { xs: 3, md: 4 },
-                    borderRadius: 4,
-                    border: '1px solid',
-                    borderColor: 'divider'
-                  }}
-                >
-                  <Stack spacing={2}>
-                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                      Выгрузка результатов
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Сформируйте свежие отчёты PDF/Excel прямо из текущей базы.
-                    </Typography>
-                    <Stack direction="row" spacing={2}>
-                      <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
-                        Excel
-                      </Button>
-                      <Button startIcon={<FileDownload />} variant="contained" onClick={() => handleExport('pdf')}>
-                        PDF
-                      </Button>
-                    </Stack>
-                  </Stack>
-                </Paper>
-                {isAdmin && (
-                  <Paper
-                    elevation={6}
-                    sx={{
-                      p: { xs: 3, md: 4 },
-                      borderRadius: 4,
-                      border: '1px solid',
-                      borderColor: 'divider'
-                    }}
-                  >
-                    <Stack spacing={2}>
-                      <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                        Управление доступом
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Измените логин и пароль пользовательской учётной записи для операторов сервиса.
-                      </Typography>
-                      <TextField
-                        label="Новый логин"
-                        value={credentialsForm.username}
-                        onChange={(event) => setCredentialsForm((prev) => ({ ...prev, username: event.target.value }))}
-                        fullWidth
-                      />
-                      <TextField
-                        label="Новый пароль"
-                        type="password"
-                        value={credentialsForm.password}
-                        onChange={(event) => setCredentialsForm((prev) => ({ ...prev, password: event.target.value }))}
-                        fullWidth
-                      />
-                      <Stack direction="row" spacing={2}>
-                        <Button variant="contained" onClick={handleCredentialsUpdate} disabled={credentialsLoading}>
-                          {credentialsLoading ? 'Сохранение…' : 'Сохранить'}
-                        </Button>
-                        <Button variant="text" onClick={() => setCredentialsForm({ username: '', password: '' })}>
-                          Очистить
-                        </Button>
-                      </Stack>
-                      <Typography variant="caption" color="text.secondary">
-                        Вход выполнен как администратор: {auth.username}
-                      </Typography>
-                    </Stack>
-                  </Paper>
-                )}
-              </Stack>
-            </Grid>
-          </Grid>
-
-          <Paper
-            elevation={10}
-            sx={{
-              p: { xs: 3, md: 4 },
-              borderRadius: 4,
-              border: '1px solid',
-              borderColor: 'divider'
-            }}
-          >
-            <Stack spacing={3}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
-                <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                  Результаты поиска
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Источник → производитель → достоверность. Все стадии доступны в один клик.
+                <Typography variant="body1" color="text.secondary" sx={{ mt: 1.5 }}>
+                  Единая таблица с товарами. Выберите строки и запустите нужный тип поиска: обычный, Google Search или OpenAI.
                 </Typography>
               </Box>
-              {results.length === 0 ? (
-                <Typography color="text.secondary">Запустите поиск, чтобы увидеть результаты.</Typography>
-              ) : (
-                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3 }}>
-                  <Table size="small" stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Confidence</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Service</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Source</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Stages</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {results.map((result, index) => (
-                        <Fragment key={`${result.part_number}-${index}`}>
-                          <TableRow hover>
-                            <TableCell>{result.part_number}</TableCell>
-                            <TableCell>{result.manufacturer_name ?? '—'}</TableCell>
-                            <TableCell>{result.alias_used ?? '—'}</TableCell>
-                            <TableCell>{result.submitted_manufacturer ?? '—'}</TableCell>
-                            <TableCell>
-                              {renderMatchChip(
-                                (result.match_status ?? null) as MatchStatus,
-                                result.match_confidence ?? null
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {result.confidence ? `${(result.confidence * 100).toFixed(1)}%` : '—'}
-                            </TableCell>
-                            <TableCell>
-                              {result.search_stage
-                                ? stageLabels[result.search_stage as StageName] ?? result.search_stage
-                                : '—'}
-                            </TableCell>
-                            <TableCell>
-                              {result.source_url ? (
-                                <Box
-                                  component="a"
-                                  href={result.source_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  sx={{ color: 'secondary.main', wordBreak: 'break-all' }}
-                                >
-                                  {result.source_url}
-                                </Box>
-                              ) : (
-                                '—'
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {result.stage_history && result.stage_history.length > 0 ? (
-                                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                                  {result.stage_history.map((stage) => (
-                                    <Chip
-                                      key={`${result.part_number}-${stage.name}`}
-                                      size="small"
-                                      label={`${stage.name}: ${stageStatusDescription[stage.status]}`}
-                                      color={stageStatusChipColor[stage.status]}
-                                      title={stage.message ?? undefined}
-                                    />
-                                  ))}
-                                </Stack>
-                              ) : (
-                                '—'
-                              )}
-                            </TableCell>
-                          </TableRow>
-                          {debugMode && result.debug_log ? (
-                            <TableRow>
-                              <TableCell colSpan={9} sx={{ backgroundColor: 'action.hover' }}>
-                                <Typography variant="body2" color="text.secondary">
-                                  {result.debug_log}
-                                </Typography>
-                              </TableCell>
-                            </TableRow>
-                          ) : null}
-                        </Fragment>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+              <Stack direction="row" spacing={2} flexWrap="wrap">
+                <Button component="label" startIcon={<Upload />} variant="contained">
+                  Загрузить Excel
+                  <input hidden type="file" accept=".xls,.xlsx" onChange={handleUpload} />
+                </Button>
+                <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
+                  Экспорт Excel
+                </Button>
+                <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('pdf')}>
+                  Экспорт PDF
+                </Button>
+              </Stack>
+              {uploadState.status !== 'idle' && (
+                <Stack spacing={1}>
+                  {uploadState.status === 'uploading' && <LinearProgress color="secondary" />}
+                  <Chip
+                    label={uploadState.message ?? 'Обработка файла'}
+                    color={
+                      uploadState.status === 'done'
+                        ? 'success'
+                        : uploadState.status === 'uploading'
+                        ? 'info'
+                        : 'error'
+                    }
+                    variant="outlined"
+                  />
+                </Stack>
               )}
             </Stack>
           </Paper>
+
+          {selectedIds.size > 0 && (
+            <Paper
+              elevation={6}
+              sx={{
+                p: { xs: 2, md: 3 },
+                borderRadius: 3,
+                border: '2px solid',
+                borderColor: 'primary.main',
+                bgcolor: (theme) => alpha(theme.palette.primary.main, 0.05)
+              }}
+            >
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" justifyContent="space-between">
+                <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                  Выбрано: {selectedIds.size} {selectedIds.size === 1 ? 'товар' : selectedIds.size < 5 ? 'товара' : 'товаров'}
+                </Typography>
+                <Stack direction="row" spacing={2} flexWrap="wrap">
+                  <Button
+                    startIcon={<Search />}
+                    variant="contained"
+                    onClick={() => handleSearchSelected('Internet')}
+                    disabled={loading}
+                  >
+                    Обычный поиск
+                  </Button>
+                  <Button
+                    startIcon={<Search />}
+                    variant="contained"
+                    color="secondary"
+                    onClick={() => handleSearchSelected('googlesearch')}
+                    disabled={loading}
+                  >
+                    Google Search
+                  </Button>
+                  <Button
+                    startIcon={<Bolt />}
+                    variant="contained"
+                    color="success"
+                    onClick={() => handleSearchSelected('OpenAI')}
+                    disabled={loading}
+                  >
+                    OpenAI
+                  </Button>
+                </Stack>
+              </Stack>
+            </Paper>
+          )}
+
+          {loading && (
+            <Paper
+              elevation={6}
+              sx={{
+                p: { xs: 2, md: 3 },
+                borderRadius: 3,
+                border: '1px solid',
+                borderColor: 'divider'
+              }}
+            >
+              <Stack spacing={2}>
+                <Box display="flex" alignItems="center" justifyContent="space-between">
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    Прогресс поиска
+                  </Typography>
+                  <Chip label={`Текущий сервис: ${currentService}`} color="primary" variant="outlined" />
+                </Box>
+                <LinearProgress color="secondary" />
+                <Stack direction="row" spacing={1} flexWrap="wrap">
+                  {stageProgress.map((stage) => (
+                    <Chip
+                      key={stage.name}
+                      label={`${stageLabels[stage.name]} · ${progressStateLabel[stage.state]}`}
+                      color={progressStateColor[stage.state]}
+                      variant={stage.state === 'active' ? 'filled' : 'outlined'}
+                      size="small"
+                      title={stage.message ?? undefined}
+                    />
+                  ))}
+                </Stack>
+              </Stack>
+            </Paper>
+          )}
 
           <Paper
             elevation={10}
@@ -1262,10 +1019,10 @@ export function App() {
               <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
                 <Box>
                   <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                    Таблица производителей
+                    Товары
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Каждое найденное соответствие мгновенно попадает в таблицу и базу данных.
+                    Все товары в едином списке. Выберите нужные и запустите поиск.
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1} alignItems="center">
@@ -1283,12 +1040,19 @@ export function App() {
                 </Stack>
               </Box>
               {filteredTableData.length === 0 ? (
-                <Typography color="text.secondary">Пока нет данных. Выполните поиск или импорт.</Typography>
+                <Typography color="text.secondary">Нет данных. Загрузите Excel файл для начала работы.</Typography>
               ) : (
-                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 420, borderRadius: 3 }}>
+                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 600, borderRadius: 3 }}>
                   <Table stickyHeader size="small">
                     <TableHead>
                       <TableRow>
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            checked={selectedIds.size === filteredTableData.length && filteredTableData.length > 0}
+                            indeterminate={selectedIds.size > 0 && selectedIds.size < filteredTableData.length}
+                            onChange={(e) => handleSelectAll(e.target.checked)}
+                          />
+                        </TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
@@ -1301,7 +1065,13 @@ export function App() {
                     </TableHead>
                     <TableBody>
                       {filteredTableData.map((row) => (
-                        <TableRow key={row.key} hover>
+                        <TableRow key={row.key} hover selected={selectedIds.has(row.id)}>
+                          <TableCell padding="checkbox">
+                            <Checkbox
+                              checked={selectedIds.has(row.id)}
+                              onChange={(e) => handleSelectRow(row.id, e.target.checked)}
+                            />
+                          </TableCell>
                           <TableCell>{row.article}</TableCell>
                           <TableCell>{row.manufacturer}</TableCell>
                           <TableCell>{row.alias}</TableCell>
@@ -1319,77 +1089,6 @@ export function App() {
                     </TableBody>
                   </Table>
                 </TableContainer>
-              )}
-            </Stack>
-          </Paper>
-
-          <Paper
-            elevation={6}
-            sx={{
-              p: { xs: 3, md: 4 },
-              borderRadius: 4,
-              border: '1px solid',
-              borderColor: 'divider'
-            }}
-          >
-            <Stack spacing={3}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" gap={2} flexWrap="wrap">
-                <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                  История поиска
-                </Typography>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <TextField
-                    size="small"
-                    label="Фильтр"
-                    value={historyFilter}
-                    onChange={(e) => setHistoryFilter(e.target.value)}
-                  />
-                  <Button
-                    variant="outlined"
-                    startIcon={historyHidden ? <Visibility /> : <VisibilityOff />}
-                    onClick={() => setHistoryHidden((prev) => !prev)}
-                  >
-                    {historyHidden ? 'Показать' : 'Скрыть'}
-                  </Button>
-                </Stack>
-              </Box>
-              {historyHidden ? (
-                <Typography color="text.secondary">История скрыта.</Typography>
-              ) : filteredHistory.length === 0 ? (
-                <Typography color="text.secondary">История пуста.</Typography>
-              ) : (
-                <Grid container spacing={3}>
-                  {filteredHistory.map((record) => (
-                    <Grid item xs={12} md={6} key={record.id}>
-                      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, borderColor: 'divider' }}>
-                        <Stack spacing={1}>
-                          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                            {record.part_number}
-                          </Typography>
-                          <Typography>Производитель: {record.manufacturer_name ?? '—'}</Typography>
-                          <Typography>Алиас: {record.alias_used ?? '—'}</Typography>
-                          <Typography>
-                            Заявленный производитель: {record.submitted_manufacturer ?? '—'}
-                          </Typography>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <Typography>Сопоставление:</Typography>
-                            {renderMatchChip(record.match_status as MatchStatus, record.match_confidence ?? null)}
-                          </Stack>
-                          <Typography>
-                            Достоверность: {record.confidence ? `${(record.confidence * 100).toFixed(1)}%` : '—'}
-                          </Typography>
-                          {debugMode && record.debug_log && (
-                            <Paper variant="outlined" sx={{ p: 2, mt: 1 }}>
-                              <Typography variant="body2" color="secondary">
-                                {record.debug_log}
-                              </Typography>
-                            </Paper>
-                          )}
-                        </Stack>
-                      </Paper>
-                    </Grid>
-                  ))}
-                </Grid>
               )}
             </Stack>
           </Paper>

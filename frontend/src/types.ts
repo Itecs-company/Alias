@@ -3,6 +3,12 @@ export interface PartRequestItem {
   manufacturer_hint?: string | null
 }
 
+export interface SearchRequestPayload {
+  items: PartRequestItem[]
+  debug: boolean
+  stages?: string[] | null
+}
+
 export type MatchStatus = 'matched' | 'mismatch' | 'pending' | null
 
 export interface StageStatus {

@@ -398,7 +398,7 @@ class PartSearchEngine:
         status = "matched" if score >= 70 else "mismatch"
         return status, score / 100
 
-    async def search_part(self, part: PartBase, *, debug: bool = False) -> SearchResult:
+    async def search_part(self, part: PartBase, *, debug: bool = False, stages: list[str] | None = None) -> SearchResult:
         stage_history: list[StageStatus] = []
         final_candidate: Candidate | None = None
         final_stage: str | None = None
@@ -447,16 +447,20 @@ class PartSearchEngine:
         # Требуем уверенность результата ещё на первом этапе, чтобы при сомнительных
         # совпадениях поиск продолжил работу через Google CSE и OpenAI, вместо того
         # чтобы останавливаться на эвристике с низкой достоверностью.
-        stage_configs: list[StageConfig] = [
-            StageConfig("Internet", self.providers, confidence_threshold=0.75)
-        ]
-        stage_configs.append(
+        all_stage_configs: list[StageConfig] = [
+            StageConfig("Internet", self.providers, confidence_threshold=0.75),
             StageConfig(
                 "googlesearch",
                 [self.google_provider] if self.google_provider else [],
                 confidence_threshold=0.67,
             )
-        )
+        ]
+
+        # Если указаны конкретные этапы, выполняем только их
+        if stages:
+            stage_configs = [config for config in all_stage_configs if config.name in stages]
+        else:
+            stage_configs = all_stage_configs
 
         skip_remaining = False
         for config in stage_configs:
@@ -513,11 +517,18 @@ class PartSearchEngine:
             if final_candidate:
                 skip_remaining = True
 
-        need_llm = final_candidate is None or (
-            final_candidate.confidence is not None and final_candidate.confidence < 0.8
-        )
+        # Проверяем, нужен ли OpenAI этап
+        should_run_openai = True
+        if stages:
+            # Если указаны конкретные этапы, проверяем, есть ли OpenAI в списке
+            should_run_openai = "OpenAI" in stages
+        else:
+            # Иначе запускаем OpenAI только если результат недостаточно хорош
+            should_run_openai = final_candidate is None or (
+                final_candidate.confidence is not None and final_candidate.confidence < 0.8
+            )
 
-        if need_llm:
+        if should_run_openai:
             evaluation = await self._search_stage(part, [self.fallback_provider], "OpenAI")
             candidate = evaluation.candidate
             status = "no-results"
@@ -641,11 +652,11 @@ class PartSearchEngine:
             match_confidence=match_confidence,
         )
 
-    async def search_many(self, items: list[PartBase], *, debug: bool = False) -> list[SearchResult]:
+    async def search_many(self, items: list[PartBase], *, debug: bool = False, stages: list[str] | None = None) -> list[SearchResult]:
         semaphore = asyncio.Semaphore(4)
 
         async def run(item: PartBase) -> SearchResult:
             async with semaphore:
-                return await self.search_part(item, debug=debug)
+                return await self.search_part(item, debug=debug, stages=stages)
 
         return await asyncio.gather(*(run(item) for item in items))

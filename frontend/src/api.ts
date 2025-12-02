@@ -75,8 +75,8 @@ export const updateCredentials = async (payload: CredentialsUpdatePayload) => {
   return response.data
 }
 
-export const searchParts = async (items: PartRequestItem[], debug: boolean) => {
-  const response = await client.post<SearchResponse>('/search', { items, debug })
+export const searchParts = async (items: PartRequestItem[], debug: boolean, stages?: string[] | null) => {
+  const response = await client.post<SearchResponse>('/search', { items, debug, stages })
   return response.data
 }
 
