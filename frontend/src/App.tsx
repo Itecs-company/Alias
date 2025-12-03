@@ -595,10 +595,12 @@ export function App() {
     }
     try {
       const created = await createPart(first)
-      setSnackbar(`Добавлено: ${created.part_number}`)
+      setSnackbar(`Товар добавлен: ${created.part_number}`)
       await refreshHistory()
+      // Очищаем форму после успешного добавления
+      setItems([{ ...emptyItem }])
     } catch (error) {
-      setSnackbar('Не удалось добавить запись вручную')
+      setSnackbar('Не удалось добавить товар')
     }
   }
 
@@ -891,9 +893,54 @@ export function App() {
                   Управление товарами
                 </Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ mt: 1.5 }}>
-                  Единая таблица с товарами. Выберите строки и запустите нужный тип поиска: обычный, Google Search или OpenAI.
+                  Единая таблица с товарами. Добавьте товары вручную или загрузите из Excel. Выберите строки и запустите нужный тип поиска.
                 </Typography>
               </Box>
+
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 3,
+                  borderRadius: 3,
+                  borderColor: 'divider',
+                  bgcolor: (theme) => alpha(theme.palette.background.default, 0.4)
+                }}
+              >
+                <Stack spacing={2}>
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    Добавить товар
+                  </Typography>
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
+                    <TextField
+                      label="Article (артикул)"
+                      value={items[0].part_number}
+                      onChange={(event) => handleItemChange(0, 'part_number', event.target.value)}
+                      fullWidth
+                      required
+                      placeholder="Введите артикул товара"
+                    />
+                    <TextField
+                      label="Manufacturer/Alias (производитель)"
+                      value={items[0].manufacturer_hint ?? ''}
+                      onChange={(event) => handleItemChange(0, 'manufacturer_hint', event.target.value)}
+                      fullWidth
+                      placeholder="Введите производителя (необязательно)"
+                    />
+                    <Button
+                      startIcon={<AddCircleOutline />}
+                      variant="contained"
+                      onClick={submitManual}
+                      sx={{ minWidth: 150, height: 56 }}
+                    >
+                      Добавить
+                    </Button>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary">
+                    Добавьте товар в таблицу. Поле "Article" обязательно, "Manufacturer/Alias" - необязательно.
+                  </Typography>
+                </Stack>
+              </Paper>
+
               <Stack direction="row" spacing={2} flexWrap="wrap">
                 <Button component="label" startIcon={<Upload />} variant="contained">
                   Загрузить Excel
