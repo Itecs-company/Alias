@@ -50,7 +50,8 @@ import {
   Visibility,
   ListAlt,
   FilterAlt,
-  Psychology
+  Psychology,
+  Settings
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
@@ -333,7 +334,7 @@ export function App() {
   const [historyHidden, setHistoryHidden] = useState(false)
   const [manufacturerFilter, setManufacturerFilter] = useState<'all' | 'found' | 'missing'>('all')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
+  const [activePage, setActivePage] = useState<'dashboard' | 'logs' | 'settings'>('dashboard')
   const [logs, setLogs] = useState<SearchLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [logFilters, setLogFilters] = useState<{ provider: string; direction: string; q: string }>({
@@ -954,6 +955,11 @@ export function App() {
                   <ToggleButton value="logs" aria-label="Логи">
                     <ListAlt fontSize="small" />
                   </ToggleButton>
+                  {isAdmin && (
+                    <ToggleButton value="settings" aria-label="Настройки">
+                      <Settings fontSize="small" />
+                    </ToggleButton>
+                  )}
                 </ToggleButtonGroup>
                 <ToggleButtonGroup
                   value={themeMode}
@@ -992,7 +998,64 @@ export function App() {
             </AppBar>
 
             <Container maxWidth="xl" sx={{ pt: { xs: 10, md: 14 }, pb: 8 }}>
-        {activePage === 'dashboard' ? (
+        {activePage === 'settings' ? (
+          <Stack spacing={4}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: { xs: 3, md: 4 },
+                borderRadius: 4,
+                border: '1px solid',
+                borderColor: 'divider'
+              }}
+            >
+              <Stack spacing={3}>
+                <Box>
+                  <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                    Настройки
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    Управление учетными данными оператора
+                  </Typography>
+                </Box>
+                <Divider />
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                    Обновить учетные данные оператора
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Измените логин и пароль для учетной записи оператора. После сохранения оператор должен будет войти с новыми данными.
+                  </Typography>
+                  <Stack spacing={2} maxWidth={500}>
+                    <TextField
+                      label="Новый логин"
+                      value={credentialsForm.username}
+                      onChange={(e) => setCredentialsForm((prev) => ({ ...prev, username: e.target.value }))}
+                      fullWidth
+                      required
+                    />
+                    <TextField
+                      label="Новый пароль"
+                      type="password"
+                      value={credentialsForm.password}
+                      onChange={(e) => setCredentialsForm((prev) => ({ ...prev, password: e.target.value }))}
+                      fullWidth
+                      required
+                    />
+                    <Button
+                      variant="contained"
+                      startIcon={<Lock />}
+                      onClick={handleCredentialsUpdate}
+                      disabled={credentialsLoading}
+                    >
+                      {credentialsLoading ? 'Сохранение...' : 'Сохранить учетные данные'}
+                    </Button>
+                  </Stack>
+                </Box>
+              </Stack>
+            </Paper>
+          </Stack>
+        ) : activePage === 'dashboard' ? (
           <Stack spacing={4}>
           <Paper
             elevation={0}
