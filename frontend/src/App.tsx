@@ -165,6 +165,83 @@ const garlandSwing = keyframes`
   100% { transform: translateY(0) }
 `
 
+const ResizableCell = ({
+  column,
+  width,
+  onResize,
+  children
+}: {
+  column: string
+  width: number
+  onResize: (column: string, width: number) => void
+  children: React.ReactNode
+}) => {
+  const [isResizing, setIsResizing] = useState(false)
+  const [startX, setStartX] = useState(0)
+  const [startWidth, setStartWidth] = useState(width)
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsResizing(true)
+    setStartX(e.clientX)
+    setStartWidth(width)
+    e.preventDefault()
+  }
+
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const diff = e.clientX - startX
+      const newWidth = startWidth + diff
+      onResize(column, newWidth)
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing, startX, startWidth, column, onResize])
+
+  return (
+    <TableCell
+      sx={{
+        fontWeight: 600,
+        width: width,
+        minWidth: width,
+        maxWidth: width,
+        position: 'relative',
+        userSelect: isResizing ? 'none' : 'auto',
+        cursor: isResizing ? 'col-resize' : 'default'
+      }}
+    >
+      {children}
+      <Box
+        onMouseDown={handleMouseDown}
+        sx={{
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: 5,
+          cursor: 'col-resize',
+          backgroundColor: isResizing ? 'primary.main' : 'transparent',
+          '&:hover': {
+            backgroundColor: 'primary.light'
+          },
+          zIndex: 1
+        }}
+      />
+    </TableCell>
+  )
+}
+
 const HolidayLights = () => {
   const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff']
   return (
@@ -310,8 +387,17 @@ export function App() {
     { status: 'idle' }
   )
   const [uploadedItems, setUploadedItems] = useState<PartRequestItem[]>([])
-  const [showUploadedTable, setShowUploadedTable] = useState(false)
   const [tableSize, setTableSize] = useState<'small' | 'medium'>('small')
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+    article: 120,
+    manufacturer: 150,
+    alias: 120,
+    submitted: 120,
+    match: 120,
+    confidence: 100,
+    source: 200,
+    actions: 300
+  })
   const [currentService, setCurrentService] = useState('—')
   const progressTimerRef = useRef<number | null>(null)
   const progressIndexRef = useRef(0)
@@ -623,14 +709,12 @@ export function App() {
       const statusMessage = response.status_message ?? `Файл ${file.name} обработан`
       setUploadedItems(response.items ?? [])
       setItems((response.items ?? []).length ? response.items : [{ ...emptyItem }])
-      setShowUploadedTable(true)
-      setUploadState({ status: 'done', message: `${statusMessage}. Готово к поиску` })
+      setUploadState({ status: 'done', message: `${statusMessage}. Данные добавлены в таблицу` })
       setSnackbar(`${statusMessage}. ${baseMessage}${errorMessage}`)
       await refreshHistory()
     } catch (error) {
       setUploadState({ status: 'error', message: 'Не удалось загрузить файл' })
       setUploadedItems([])
-      setShowUploadedTable(false)
       setSnackbar('Не удалось загрузить файл')
     } finally {
       input.value = ''
@@ -684,6 +768,13 @@ export function App() {
     }
     await performSearch([partToSearch], stages)
   }, [history])
+
+  const handleColumnResize = useCallback((column: string, width: number) => {
+    setColumnWidths(prev => ({
+      ...prev,
+      [column]: Math.max(80, width)
+    }))
+  }, [])
 
   const handleExport = async (type: 'pdf' | 'excel') => {
     try {
@@ -989,53 +1080,6 @@ export function App() {
             </Stack>
           </Paper>
 
-          {showUploadedTable && uploadedItems.length > 0 && (
-            <Paper
-              elevation={6}
-              sx={{
-                p: { xs: 2, md: 3 },
-                borderRadius: 3,
-                border: '1px solid',
-                borderColor: 'divider'
-              }}
-            >
-              <Stack spacing={2}>
-                <Box display="flex" alignItems="center" justifyContent="space-between">
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    Загруженные данные из Excel ({uploadedItems.length} записей)
-                  </Typography>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => setShowUploadedTable(false)}
-                  >
-                    Скрыть
-                  </Button>
-                </Box>
-                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 300, borderRadius: 2 }}>
-                  <Table size="small" stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 600 }}>№</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer/Alias</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {uploadedItems.map((item, index) => (
-                        <TableRow key={index} hover>
-                          <TableCell>{index + 1}</TableCell>
-                          <TableCell>{item.part_number}</TableCell>
-                          <TableCell>{item.manufacturer_hint ?? '—'}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Stack>
-            </Paper>
-          )}
-
           {loading && (
             <Paper
               elevation={6}
@@ -1128,33 +1172,57 @@ export function App() {
                     }
                   }}
                 >
-                  <Table stickyHeader size={tableSize}>
+                  <Table stickyHeader size={tableSize} sx={{ tableLayout: 'fixed' }}>
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 600, minWidth: 120 }}>Article</TableCell>
-                        <TableCell sx={{ fontWeight: 600, minWidth: 150 }}>Manufacturer</TableCell>
-                        <TableCell sx={{ fontWeight: 600, minWidth: 120 }}>Alias</TableCell>
-                        <TableCell sx={{ fontWeight: 600, minWidth: 120 }}>Submitted</TableCell>
-                        <TableCell sx={{ fontWeight: 600, minWidth: 120 }}>Match</TableCell>
-                        <TableCell sx={{ fontWeight: 600, minWidth: 100 }}>Confidence</TableCell>
-                        <TableCell sx={{ fontWeight: 600, minWidth: 200 }}>Source</TableCell>
-                        <TableCell sx={{ fontWeight: 600, minWidth: 300 }} align="center">
-                          Действия
-                        </TableCell>
+                        <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize}>
+                          Article
+                        </ResizableCell>
+                        <ResizableCell column="manufacturer" width={columnWidths.manufacturer} onResize={handleColumnResize}>
+                          Manufacturer
+                        </ResizableCell>
+                        <ResizableCell column="alias" width={columnWidths.alias} onResize={handleColumnResize}>
+                          Alias
+                        </ResizableCell>
+                        <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
+                          Submitted
+                        </ResizableCell>
+                        <ResizableCell column="match" width={columnWidths.match} onResize={handleColumnResize}>
+                          Match
+                        </ResizableCell>
+                        <ResizableCell column="confidence" width={columnWidths.confidence} onResize={handleColumnResize}>
+                          Confidence
+                        </ResizableCell>
+                        <ResizableCell column="source" width={columnWidths.source} onResize={handleColumnResize}>
+                          Source
+                        </ResizableCell>
+                        <ResizableCell column="actions" width={columnWidths.actions} onResize={handleColumnResize}>
+                          <Box textAlign="center">Действия</Box>
+                        </ResizableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {filteredTableData.map((row) => (
                         <TableRow key={row.key} hover>
-                          <TableCell>{row.article}</TableCell>
-                          <TableCell>{row.manufacturer}</TableCell>
-                          <TableCell>{row.alias}</TableCell>
-                          <TableCell>{row.submitted}</TableCell>
-                          <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
-                          <TableCell>
+                          <TableCell sx={{ width: columnWidths.article, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.article}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.manufacturer, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.manufacturer}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.alias, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.alias}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.submitted, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.submitted}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.match }}>
+                            {renderMatchChip(row.matchStatus, row.matchConfidence)}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.confidence }}>
                             {row.confidence ? `${(row.confidence * 100).toFixed(1)}%` : '—'}
                           </TableCell>
-                          <TableCell>
+                          <TableCell sx={{ width: columnWidths.source }}>
                             {row.sourceUrl ? (
                               <Tooltip title={row.sourceUrl}>
                                 <Box
@@ -1180,7 +1248,7 @@ export function App() {
                               '—'
                             )}
                           </TableCell>
-                          <TableCell align="center">
+                          <TableCell align="center" sx={{ width: columnWidths.actions }}>
                             <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap>
                               <Tooltip title="Поиск через Google Search">
                                 <IconButton
