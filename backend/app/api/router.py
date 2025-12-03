@@ -210,6 +210,17 @@ async def upload_excel(
     imported, skipped, errors, status_message, items = await import_parts_from_excel(
         session, file, debug=debug
     )
+
+    # Сохраняем каждую импортированную запись в базу данных
+    for item in items:
+        part = Part(
+            part_number=item.part_number,
+            submitted_manufacturer=item.manufacturer_hint
+        )
+        session.add(part)
+
+    await session.commit()
+
     return UploadResponse(
         imported=imported,
         skipped=skipped,
