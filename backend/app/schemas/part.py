@@ -57,6 +57,10 @@ class PartRead(BaseModel):
 class SearchRequest(BaseModel):
     items: List[PartBase]
     debug: bool = False
+    stages: Optional[List[str]] = Field(
+        default=None,
+        description="Список этапов поиска для выполнения (Internet, googlesearch, OpenAI). Если None - выполняются все."
+    )
 
 
 class StageStatus(BaseModel):

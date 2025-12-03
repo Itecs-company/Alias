@@ -196,7 +196,7 @@ async def create_part(part: PartCreate, session: AsyncSession = Depends(get_db))
 @protected_router.post("/search", response_model=SearchResponse)
 async def search_parts(request: SearchRequest, session: AsyncSession = Depends(get_db)) -> SearchResponse:
     engine = PartSearchEngine(session)
-    results = await engine.search_many(request.items, debug=request.debug)
+    results = await engine.search_many(request.items, debug=request.debug, stages=request.stages)
     await session.commit()
     return SearchResponse(results=results, debug=request.debug)
 
