@@ -275,7 +275,9 @@ export function App() {
       alias: record.alias_used ?? '—',
       submitted: record.submitted_manufacturer ?? '—',
       matchStatus: (record.match_status ?? null) as MatchStatus,
-      matchConfidence: record.match_confidence ?? null
+      matchConfidence: record.match_confidence ?? null,
+      sourceUrl: record.source_url ?? null,
+      confidence: record.confidence ?? null
     }))
   }, [history])
   const filteredTableData = useMemo(() => {
@@ -308,6 +310,8 @@ export function App() {
     { status: 'idle' }
   )
   const [uploadedItems, setUploadedItems] = useState<PartRequestItem[]>([])
+  const [showUploadedTable, setShowUploadedTable] = useState(false)
+  const [tableSize, setTableSize] = useState<'small' | 'medium'>('small')
   const [currentService, setCurrentService] = useState('—')
   const progressTimerRef = useRef<number | null>(null)
   const progressIndexRef = useRef(0)
@@ -619,12 +623,14 @@ export function App() {
       const statusMessage = response.status_message ?? `Файл ${file.name} обработан`
       setUploadedItems(response.items ?? [])
       setItems((response.items ?? []).length ? response.items : [{ ...emptyItem }])
+      setShowUploadedTable(true)
       setUploadState({ status: 'done', message: `${statusMessage}. Готово к поиску` })
       setSnackbar(`${statusMessage}. ${baseMessage}${errorMessage}`)
       await refreshHistory()
     } catch (error) {
       setUploadState({ status: 'error', message: 'Не удалось загрузить файл' })
       setUploadedItems([])
+      setShowUploadedTable(false)
       setSnackbar('Не удалось загрузить файл')
     } finally {
       input.value = ''
@@ -667,6 +673,17 @@ export function App() {
     await performSearch(selectedParts, [stage])
     setSelectedIds(new Set())
   }, [selectedIds, history])
+
+  const handleSearchSingleRow = useCallback(async (partId: number, stages?: string[] | null) => {
+    const part = history.find(p => p.id === partId)
+    if (!part) return
+
+    const partToSearch: PartRequestItem = {
+      part_number: part.part_number,
+      manufacturer_hint: part.submitted_manufacturer ?? null
+    }
+    await performSearch([partToSearch], stages)
+  }, [history])
 
   const handleExport = async (type: 'pdf' | 'excel') => {
     try {
@@ -972,49 +989,49 @@ export function App() {
             </Stack>
           </Paper>
 
-          {selectedIds.size > 0 && (
+          {showUploadedTable && uploadedItems.length > 0 && (
             <Paper
               elevation={6}
               sx={{
                 p: { xs: 2, md: 3 },
                 borderRadius: 3,
-                border: '2px solid',
-                borderColor: 'primary.main',
-                bgcolor: (theme) => alpha(theme.palette.primary.main, 0.05)
+                border: '1px solid',
+                borderColor: 'divider'
               }}
             >
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" justifyContent="space-between">
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  Выбрано: {selectedIds.size} {selectedIds.size === 1 ? 'товар' : selectedIds.size < 5 ? 'товара' : 'товаров'}
-                </Typography>
-                <Stack direction="row" spacing={2} flexWrap="wrap">
+              <Stack spacing={2}>
+                <Box display="flex" alignItems="center" justifyContent="space-between">
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    Загруженные данные из Excel ({uploadedItems.length} записей)
+                  </Typography>
                   <Button
-                    startIcon={<Search />}
-                    variant="contained"
-                    onClick={() => handleSearchSelected('Internet')}
-                    disabled={loading}
+                    size="small"
+                    variant="outlined"
+                    onClick={() => setShowUploadedTable(false)}
                   >
-                    Обычный поиск
+                    Скрыть
                   </Button>
-                  <Button
-                    startIcon={<Search />}
-                    variant="contained"
-                    color="secondary"
-                    onClick={() => handleSearchSelected('googlesearch')}
-                    disabled={loading}
-                  >
-                    Google Search
-                  </Button>
-                  <Button
-                    startIcon={<Bolt />}
-                    variant="contained"
-                    color="success"
-                    onClick={() => handleSearchSelected('OpenAI')}
-                    disabled={loading}
-                  >
-                    OpenAI
-                  </Button>
-                </Stack>
+                </Box>
+                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 300, borderRadius: 2 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 600 }}>№</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer/Alias</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {uploadedItems.map((item, index) => (
+                        <TableRow key={index} hover>
+                          <TableCell>{index + 1}</TableCell>
+                          <TableCell>{item.part_number}</TableCell>
+                          <TableCell>{item.manufacturer_hint ?? '—'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               </Stack>
             </Paper>
           )}
@@ -1069,10 +1086,20 @@ export function App() {
                     Товары
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Все товары в едином списке. Выберите нужные и запустите поиск.
+                    Все товары в едином списке. Используйте кнопки справа для запуска поиска по каждой строке.
                   </Typography>
                 </Box>
-                <Stack direction="row" spacing={1} alignItems="center">
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                  <ToggleButtonGroup
+                    size="small"
+                    exclusive
+                    value={tableSize}
+                    onChange={(_, value) => value && setTableSize(value)}
+                    aria-label="Размер таблицы"
+                  >
+                    <ToggleButton value="small">Компактная</ToggleButton>
+                    <ToggleButton value="medium">Нормальная</ToggleButton>
+                  </ToggleButtonGroup>
                   <ToggleButtonGroup
                     size="small"
                     exclusive
@@ -1087,49 +1114,114 @@ export function App() {
                 </Stack>
               </Box>
               {filteredTableData.length === 0 ? (
-                <Typography color="text.secondary">Нет данных. Загрузите Excel файл для начала работы.</Typography>
+                <Typography color="text.secondary">Нет данных. Загрузите Excel файл или добавьте товары вручную.</Typography>
               ) : (
-                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 600, borderRadius: 3 }}>
-                  <Table stickyHeader size="small">
+                <TableContainer
+                  component={Paper}
+                  variant="outlined"
+                  sx={{
+                    maxHeight: 600,
+                    borderRadius: 3,
+                    overflowX: 'auto',
+                    '& .MuiTable-root': {
+                      minWidth: { xs: 800, md: 'auto' }
+                    }
+                  }}
+                >
+                  <Table stickyHeader size={tableSize}>
                     <TableHead>
                       <TableRow>
-                        <TableCell padding="checkbox">
-                          <Checkbox
-                            checked={selectedIds.size === filteredTableData.length && filteredTableData.length > 0}
-                            indeterminate={selectedIds.size > 0 && selectedIds.size < filteredTableData.length}
-                            onChange={(e) => handleSelectAll(e.target.checked)}
-                          />
-                        </TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }} align="right">
+                        <TableCell sx={{ fontWeight: 600, minWidth: 120 }}>Article</TableCell>
+                        <TableCell sx={{ fontWeight: 600, minWidth: 150 }}>Manufacturer</TableCell>
+                        <TableCell sx={{ fontWeight: 600, minWidth: 120 }}>Alias</TableCell>
+                        <TableCell sx={{ fontWeight: 600, minWidth: 120 }}>Submitted</TableCell>
+                        <TableCell sx={{ fontWeight: 600, minWidth: 120 }}>Match</TableCell>
+                        <TableCell sx={{ fontWeight: 600, minWidth: 100 }}>Confidence</TableCell>
+                        <TableCell sx={{ fontWeight: 600, minWidth: 200 }}>Source</TableCell>
+                        <TableCell sx={{ fontWeight: 600, minWidth: 300 }} align="center">
                           Действия
                         </TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {filteredTableData.map((row) => (
-                        <TableRow key={row.key} hover selected={selectedIds.has(row.id)}>
-                          <TableCell padding="checkbox">
-                            <Checkbox
-                              checked={selectedIds.has(row.id)}
-                              onChange={(e) => handleSelectRow(row.id, e.target.checked)}
-                            />
-                          </TableCell>
+                        <TableRow key={row.key} hover>
                           <TableCell>{row.article}</TableCell>
                           <TableCell>{row.manufacturer}</TableCell>
                           <TableCell>{row.alias}</TableCell>
                           <TableCell>{row.submitted}</TableCell>
                           <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
-                          <TableCell align="right">
-                            <Tooltip title="Удалить строку">
-                              <IconButton size="small" color="error" onClick={() => handleDeletePartRow(row.id)}>
-                                <DeleteForever fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
+                          <TableCell>
+                            {row.confidence ? `${(row.confidence * 100).toFixed(1)}%` : '—'}
+                          </TableCell>
+                          <TableCell>
+                            {row.sourceUrl ? (
+                              <Tooltip title={row.sourceUrl}>
+                                <Box
+                                  component="a"
+                                  href={row.sourceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  sx={{
+                                    color: 'secondary.main',
+                                    textDecoration: 'none',
+                                    '&:hover': { textDecoration: 'underline' },
+                                    display: 'block',
+                                    maxWidth: 200,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                  }}
+                                >
+                                  {row.sourceUrl}
+                                </Box>
+                              </Tooltip>
+                            ) : (
+                              '—'
+                            )}
+                          </TableCell>
+                          <TableCell align="center">
+                            <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap>
+                              <Tooltip title="Поиск через Google Search">
+                                <IconButton
+                                  size="small"
+                                  color="secondary"
+                                  onClick={() => handleSearchSingleRow(row.id, ['googlesearch'])}
+                                  disabled={loading}
+                                >
+                                  <Search fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Поиск через OpenAI">
+                                <IconButton
+                                  size="small"
+                                  color="success"
+                                  onClick={() => handleSearchSingleRow(row.id, ['OpenAI'])}
+                                  disabled={loading}
+                                >
+                                  <Bolt fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Общий поиск (Internet → Google → OpenAI)">
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  onClick={() => handleSearchSingleRow(row.id, null)}
+                                  disabled={loading}
+                                >
+                                  <Search fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Удалить строку">
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => handleDeletePartRow(row.id)}
+                                >
+                                  <DeleteForever fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
                           </TableCell>
                         </TableRow>
                       ))}
