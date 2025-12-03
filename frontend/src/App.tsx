@@ -49,7 +49,8 @@ import {
   VisibilityOff,
   Visibility,
   ListAlt,
-  FilterAlt
+  FilterAlt,
+  Psychology
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
@@ -1267,7 +1268,7 @@ export function App() {
                                   onClick={() => handleSearchSingleRow(row.id, ['OpenAI'])}
                                   disabled={loading}
                                 >
-                                  <Bolt fontSize="small" />
+                                  <Psychology fontSize="small" />
                                 </IconButton>
                               </Tooltip>
                               <Tooltip title="Общий поиск (Internet → Google → OpenAI)">
