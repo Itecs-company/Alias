@@ -167,6 +167,28 @@ const garlandSwing = keyframes`
   100% { transform: translateY(0) }
 `
 
+const snowfall = keyframes`
+  0% { transform: translateY(-10vh) translateX(0) rotate(0deg); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(110vh) translateX(100px) rotate(360deg); opacity: 0; }
+`
+
+const treeGlow = keyframes`
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(255,215,0,0.6)); }
+  50% { filter: drop-shadow(0 0 20px rgba(255,215,0,0.9)); }
+`
+
+const bounce = keyframes`
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+`
+
+const float = keyframes`
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-15px); }
+`
+
 const ResizableCell = ({
   column,
   width,
@@ -245,7 +267,7 @@ const ResizableCell = ({
 }
 
 const HolidayLights = () => {
-  const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff']
+  const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ff6b9a', '#00d4aa']
   return (
     <Box
       sx={{
@@ -258,6 +280,25 @@ const HolidayLights = () => {
           'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.12), transparent 40%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.12), transparent 45%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.12), transparent 40%), linear-gradient(180deg, #e8f6ff 0%, #e7f0ff 45%, #f8f3ff 100%)'
       }}
     >
+      {/* Падающий снег */}
+      {Array.from({ length: 50 }).map((_, i) => (
+        <Box
+          key={`snow-${i}`}
+          sx={{
+            position: 'absolute',
+            top: '-10vh',
+            left: `${Math.random() * 100}%`,
+            fontSize: `${Math.random() * 10 + 10}px`,
+            animation: `${snowfall} ${Math.random() * 10 + 15}s linear infinite`,
+            animationDelay: `${Math.random() * 10}s`,
+            opacity: 0.8
+          }}
+        >
+          ❄
+        </Box>
+      ))}
+
+      {/* Верхняя гирлянда */}
       <Box
         sx={{
           position: 'absolute',
@@ -271,21 +312,158 @@ const HolidayLights = () => {
           animation: `${garlandSwing} 6s ease-in-out infinite`
         }}
       >
-        {Array.from({ length: 28 }).map((_, index) => (
+        {Array.from({ length: 35 }).map((_, index) => (
           <Box
-            key={index}
+            key={`top-${index}`}
             sx={{
-              width: 12,
-              height: 12,
+              width: 14,
+              height: 14,
               borderRadius: '50%',
               background: palette[index % palette.length],
-              boxShadow: `0 0 12px ${palette[index % palette.length]}`,
+              boxShadow: `0 0 15px ${palette[index % palette.length]}`,
               animation: `${twinkle} 2.6s ease-in-out infinite`,
               animationDelay: `${index * 70}ms`
             }}
           />
         ))}
       </Box>
+
+      {/* Нижняя гирлянда */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 12,
+          left: 0,
+          right: 0,
+          display: 'flex',
+          justifyContent: 'space-evenly',
+          px: 4,
+          zIndex: 1,
+          animation: `${garlandSwing} 7s ease-in-out infinite`
+        }}
+      >
+        {Array.from({ length: 35 }).map((_, index) => (
+          <Box
+            key={`bottom-${index}`}
+            sx={{
+              width: 14,
+              height: 14,
+              borderRadius: '50%',
+              background: palette[(index + 3) % palette.length],
+              boxShadow: `0 0 15px ${palette[(index + 3) % palette.length]}`,
+              animation: `${twinkle} 2.8s ease-in-out infinite`,
+              animationDelay: `${index * 80}ms`
+            }}
+          />
+        ))}
+      </Box>
+
+      {/* Ёлка в левом углу */}
+      <Box
+        sx={{
+          position: 'absolute',
+          left: 40,
+          bottom: 20,
+          fontSize: '180px',
+          animation: `${treeGlow} 3s ease-in-out infinite`,
+          zIndex: 2
+        }}
+      >
+        🎄
+        {/* Гирлянды на ёлке */}
+        {Array.from({ length: 12 }).map((_, i) => (
+          <Box
+            key={`tree-light-${i}`}
+            sx={{
+              position: 'absolute',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: palette[i % palette.length],
+              boxShadow: `0 0 12px ${palette[i % palette.length]}`,
+              top: `${20 + i * 12}%`,
+              left: `${30 + (i % 2 ? 15 : -15)}%`,
+              animation: `${twinkle} ${1.5 + Math.random()}s ease-in-out infinite`,
+              animationDelay: `${i * 100}ms`
+            }}
+          />
+        ))}
+      </Box>
+
+      {/* Подарки под ёлкой */}
+      <Box sx={{ position: 'absolute', left: 50, bottom: 10, fontSize: '32px', zIndex: 1 }}>
+        🎁
+      </Box>
+      <Box sx={{ position: 'absolute', left: 120, bottom: 15, fontSize: '28px', zIndex: 1 }}>
+        🎁
+      </Box>
+      <Box sx={{ position: 'absolute', left: 90, bottom: 5, fontSize: '24px', zIndex: 1 }}>
+        🎁
+      </Box>
+
+      {/* Олени */}
+      <Box
+        sx={{
+          position: 'absolute',
+          right: 100,
+          top: '30%',
+          fontSize: '64px',
+          animation: `${float} 4s ease-in-out infinite`,
+          zIndex: 2
+        }}
+      >
+        🦌
+      </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          right: 180,
+          top: '35%',
+          fontSize: '56px',
+          animation: `${float} 5s ease-in-out infinite`,
+          animationDelay: '1s',
+          zIndex: 2
+        }}
+      >
+        🦌
+      </Box>
+
+      {/* Гномы */}
+      <Box
+        sx={{
+          position: 'absolute',
+          left: '40%',
+          bottom: 30,
+          fontSize: '48px',
+          animation: `${bounce} 3s ease-in-out infinite`,
+          zIndex: 2
+        }}
+      >
+        🧙‍♂️
+      </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          right: '35%',
+          bottom: 25,
+          fontSize: '52px',
+          animation: `${bounce} 3.5s ease-in-out infinite`,
+          animationDelay: '0.5s',
+          zIndex: 2
+        }}
+      >
+        🎅
+      </Box>
+
+      {/* Дополнительные украшения */}
+      <Box sx={{ position: 'absolute', left: '20%', top: '20%', fontSize: '42px', animation: `${float} 6s ease-in-out infinite` }}>
+        ⭐
+      </Box>
+      <Box sx={{ position: 'absolute', right: '15%', top: '15%', fontSize: '38px', animation: `${float} 5.5s ease-in-out infinite`, animationDelay: '1s' }}>
+        ⭐
+      </Box>
+
+      {/* Фоновые эффекты */}
       <Box
         sx={{
           position: 'absolute',
