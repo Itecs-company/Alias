@@ -63,8 +63,8 @@ async def export_parts_to_pdf(session: AsyncSession) -> Path:
 
     rows = _build_table_rows(parts)
 
-    # Создаем PDF с поддержкой Unicode
-    pdf = FPDF()
+    # Создаем PDF с поддержкой Unicode в альбомной ориентации
+    pdf = FPDF(orientation="L")  # L = Landscape (альбомная ориентация)
     pdf.set_auto_page_break(auto=True, margin=15)
 
     # Добавляем шрифты DejaVu с поддержкой кириллицы
@@ -82,8 +82,9 @@ async def export_parts_to_pdf(session: AsyncSession) -> Path:
     pdf.cell(0, 10, "Сводная таблица производителей", ln=True, align="C")
     pdf.ln(2)
 
+    # Увеличенная ширина колонок для альбомной ориентации (общая ширина ~277mm)
     headers = ["Article", "Manufacturer", "Alias", "Submitted", "Match"]
-    col_widths = [35, 45, 40, 45, 45]
+    col_widths = [50, 60, 50, 60, 57]  # Сумма: 277mm
     pdf.set_font(font_name, style="B", size=11)
     for header, width in zip(headers, col_widths):
         pdf.cell(width, 10, header, border=1, align="C")
