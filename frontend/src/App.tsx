@@ -389,6 +389,7 @@ export function App() {
   )
   const [uploadedItems, setUploadedItems] = useState<PartRequestItem[]>([])
   const [tableSize, setTableSize] = useState<'small' | 'medium'>('small')
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium')
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     article: 120,
     manufacturer: 150,
@@ -399,6 +400,20 @@ export function App() {
     source: 200,
     actions: 300
   })
+
+  // Вычисляем размер шрифта в зависимости от выбранного значения
+  const tableFontSize = useMemo(() => {
+    switch (fontSize) {
+      case 'small':
+        return '0.75rem'  // 12px
+      case 'medium':
+        return '0.875rem' // 14px
+      case 'large':
+        return '1rem'     // 16px
+      default:
+        return '0.875rem'
+    }
+  }, [fontSize])
   const [currentService, setCurrentService] = useState('—')
   const progressTimerRef = useRef<number | null>(null)
   const progressIndexRef = useRef(0)
@@ -1148,6 +1163,17 @@ export function App() {
                   <ToggleButtonGroup
                     size="small"
                     exclusive
+                    value={fontSize}
+                    onChange={(_, value) => value && setFontSize(value)}
+                    aria-label="Размер шрифта"
+                  >
+                    <ToggleButton value="small">Мелкий</ToggleButton>
+                    <ToggleButton value="medium">Средний</ToggleButton>
+                    <ToggleButton value="large">Крупный</ToggleButton>
+                  </ToggleButtonGroup>
+                  <ToggleButtonGroup
+                    size="small"
+                    exclusive
                     value={manufacturerFilter}
                     onChange={(_, value) => value && setManufacturerFilter(value)}
                     aria-label="Фильтр производителей"
@@ -1170,10 +1196,20 @@ export function App() {
                     overflowX: 'auto',
                     '& .MuiTable-root': {
                       minWidth: { xs: 800, md: 'auto' }
-                    }
+                    },
+                    fontSize: tableFontSize
                   }}
                 >
-                  <Table stickyHeader size={tableSize} sx={{ tableLayout: 'fixed' }}>
+                  <Table
+                    stickyHeader
+                    size={tableSize}
+                    sx={{
+                      tableLayout: 'fixed',
+                      '& .MuiTableCell-root': {
+                        fontSize: tableFontSize
+                      }
+                    }}
+                  >
                     <TableHead>
                       <TableRow>
                         <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize}>
