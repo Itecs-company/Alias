@@ -63,21 +63,34 @@ async def export_parts_to_pdf(session: AsyncSession) -> Path:
 
     rows = _build_table_rows(parts)
 
-    pdf = FPDF()
+    # Создаем PDF с поддержкой Unicode в альбомной ориентации
+    pdf = FPDF(orientation="L")  # L = Landscape (альбомная ориентация)
     pdf.set_auto_page_break(auto=True, margin=15)
+
+    # Добавляем шрифты DejaVu с поддержкой кириллицы
+    try:
+        pdf.add_font("DejaVu", "", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+        pdf.add_font("DejaVu", "B", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+        font_name = "DejaVu"
+    except Exception:
+        # Если не удалось загрузить DejaVu, используем стандартный шрифт
+        font_name = "Helvetica"
+
     pdf.add_page()
-    pdf.set_font("Helvetica", style="B", size=14)
+
+    pdf.set_font(font_name, style="B", size=14)
     pdf.cell(0, 10, "Сводная таблица производителей", ln=True, align="C")
     pdf.ln(2)
 
+    # Увеличенная ширина колонок для альбомной ориентации (общая ширина ~277mm)
     headers = ["Article", "Manufacturer", "Alias", "Submitted", "Match"]
-    col_widths = [35, 45, 40, 45, 45]
-    pdf.set_font("Helvetica", style="B", size=11)
+    col_widths = [50, 60, 50, 60, 57]  # Сумма: 277mm
+    pdf.set_font(font_name, style="B", size=11)
     for header, width in zip(headers, col_widths):
         pdf.cell(width, 10, header, border=1, align="C")
     pdf.ln()
 
-    pdf.set_font("Helvetica", size=10)
+    pdf.set_font(font_name, size=10)
     if not rows:
         pdf.cell(sum(col_widths), 10, "Данные отсутствуют", border=1, align="C")
         pdf.ln()

@@ -49,7 +49,8 @@ import {
   VisibilityOff,
   Visibility,
   ListAlt,
-  FilterAlt
+  FilterAlt,
+  Psychology
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
@@ -165,6 +166,83 @@ const garlandSwing = keyframes`
   100% { transform: translateY(0) }
 `
 
+const ResizableCell = ({
+  column,
+  width,
+  onResize,
+  children
+}: {
+  column: string
+  width: number
+  onResize: (column: string, width: number) => void
+  children: React.ReactNode
+}) => {
+  const [isResizing, setIsResizing] = useState(false)
+  const [startX, setStartX] = useState(0)
+  const [startWidth, setStartWidth] = useState(width)
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsResizing(true)
+    setStartX(e.clientX)
+    setStartWidth(width)
+    e.preventDefault()
+  }
+
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const diff = e.clientX - startX
+      const newWidth = startWidth + diff
+      onResize(column, newWidth)
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing, startX, startWidth, column, onResize])
+
+  return (
+    <TableCell
+      sx={{
+        fontWeight: 600,
+        width: width,
+        minWidth: width,
+        maxWidth: width,
+        position: 'relative',
+        userSelect: isResizing ? 'none' : 'auto',
+        cursor: isResizing ? 'col-resize' : 'default'
+      }}
+    >
+      {children}
+      <Box
+        onMouseDown={handleMouseDown}
+        sx={{
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: 5,
+          cursor: 'col-resize',
+          backgroundColor: isResizing ? 'primary.main' : 'transparent',
+          '&:hover': {
+            backgroundColor: 'primary.light'
+          },
+          zIndex: 1
+        }}
+      />
+    </TableCell>
+  )
+}
+
 const HolidayLights = () => {
   const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff']
   return (
@@ -275,7 +353,9 @@ export function App() {
       alias: record.alias_used ?? '—',
       submitted: record.submitted_manufacturer ?? '—',
       matchStatus: (record.match_status ?? null) as MatchStatus,
-      matchConfidence: record.match_confidence ?? null
+      matchConfidence: record.match_confidence ?? null,
+      sourceUrl: record.source_url ?? null,
+      confidence: record.confidence ?? null
     }))
   }, [history])
   const filteredTableData = useMemo(() => {
@@ -308,6 +388,32 @@ export function App() {
     { status: 'idle' }
   )
   const [uploadedItems, setUploadedItems] = useState<PartRequestItem[]>([])
+  const [tableSize, setTableSize] = useState<'small' | 'medium'>('small')
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium')
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+    article: 120,
+    manufacturer: 150,
+    alias: 120,
+    submitted: 120,
+    match: 120,
+    confidence: 100,
+    source: 200,
+    actions: 300
+  })
+
+  // Вычисляем размер шрифта в зависимости от выбранного значения
+  const tableFontSize = useMemo(() => {
+    switch (fontSize) {
+      case 'small':
+        return '0.75rem'  // 12px
+      case 'medium':
+        return '0.875rem' // 14px
+      case 'large':
+        return '1rem'     // 16px
+      default:
+        return '0.875rem'
+    }
+  }, [fontSize])
   const [currentService, setCurrentService] = useState('—')
   const progressTimerRef = useRef<number | null>(null)
   const progressIndexRef = useRef(0)
@@ -595,10 +701,12 @@ export function App() {
     }
     try {
       const created = await createPart(first)
-      setSnackbar(`Добавлено: ${created.part_number}`)
+      setSnackbar(`Товар добавлен: ${created.part_number}`)
       await refreshHistory()
+      // Очищаем форму после успешного добавления
+      setItems([{ ...emptyItem }])
     } catch (error) {
-      setSnackbar('Не удалось добавить запись вручную')
+      setSnackbar('Не удалось добавить товар')
     }
   }
 
@@ -617,7 +725,7 @@ export function App() {
       const statusMessage = response.status_message ?? `Файл ${file.name} обработан`
       setUploadedItems(response.items ?? [])
       setItems((response.items ?? []).length ? response.items : [{ ...emptyItem }])
-      setUploadState({ status: 'done', message: `${statusMessage}. Готово к поиску` })
+      setUploadState({ status: 'done', message: `${statusMessage}. Данные добавлены в таблицу` })
       setSnackbar(`${statusMessage}. ${baseMessage}${errorMessage}`)
       await refreshHistory()
     } catch (error) {
@@ -665,6 +773,24 @@ export function App() {
     await performSearch(selectedParts, [stage])
     setSelectedIds(new Set())
   }, [selectedIds, history])
+
+  const handleSearchSingleRow = useCallback(async (partId: number, stages?: string[] | null) => {
+    const part = history.find(p => p.id === partId)
+    if (!part) return
+
+    const partToSearch: PartRequestItem = {
+      part_number: part.part_number,
+      manufacturer_hint: part.submitted_manufacturer ?? null
+    }
+    await performSearch([partToSearch], stages)
+  }, [history])
+
+  const handleColumnResize = useCallback((column: string, width: number) => {
+    setColumnWidths(prev => ({
+      ...prev,
+      [column]: Math.max(80, width)
+    }))
+  }, [])
 
   const handleExport = async (type: 'pdf' | 'excel') => {
     try {
@@ -891,9 +1017,54 @@ export function App() {
                   Управление товарами
                 </Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ mt: 1.5 }}>
-                  Единая таблица с товарами. Выберите строки и запустите нужный тип поиска: обычный, Google Search или OpenAI.
+                  Единая таблица с товарами. Добавьте товары вручную или загрузите из Excel. Выберите строки и запустите нужный тип поиска.
                 </Typography>
               </Box>
+
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 3,
+                  borderRadius: 3,
+                  borderColor: 'divider',
+                  bgcolor: (theme) => alpha(theme.palette.background.default, 0.4)
+                }}
+              >
+                <Stack spacing={2}>
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    Добавить товар
+                  </Typography>
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
+                    <TextField
+                      label="Article (артикул)"
+                      value={items[0].part_number}
+                      onChange={(event) => handleItemChange(0, 'part_number', event.target.value)}
+                      fullWidth
+                      required
+                      placeholder="Введите артикул товара"
+                    />
+                    <TextField
+                      label="Manufacturer/Alias (производитель)"
+                      value={items[0].manufacturer_hint ?? ''}
+                      onChange={(event) => handleItemChange(0, 'manufacturer_hint', event.target.value)}
+                      fullWidth
+                      placeholder="Введите производителя (необязательно)"
+                    />
+                    <Button
+                      startIcon={<AddCircleOutline />}
+                      variant="contained"
+                      onClick={submitManual}
+                      sx={{ minWidth: 150, height: 56 }}
+                    >
+                      Добавить
+                    </Button>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary">
+                    Добавьте товар в таблицу. Поле "Article" обязательно, "Manufacturer/Alias" - необязательно.
+                  </Typography>
+                </Stack>
+              </Paper>
+
               <Stack direction="row" spacing={2} flexWrap="wrap">
                 <Button component="label" startIcon={<Upload />} variant="contained">
                   Загрузить Excel
@@ -924,53 +1095,6 @@ export function App() {
               )}
             </Stack>
           </Paper>
-
-          {selectedIds.size > 0 && (
-            <Paper
-              elevation={6}
-              sx={{
-                p: { xs: 2, md: 3 },
-                borderRadius: 3,
-                border: '2px solid',
-                borderColor: 'primary.main',
-                bgcolor: (theme) => alpha(theme.palette.primary.main, 0.05)
-              }}
-            >
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" justifyContent="space-between">
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  Выбрано: {selectedIds.size} {selectedIds.size === 1 ? 'товар' : selectedIds.size < 5 ? 'товара' : 'товаров'}
-                </Typography>
-                <Stack direction="row" spacing={2} flexWrap="wrap">
-                  <Button
-                    startIcon={<Search />}
-                    variant="contained"
-                    onClick={() => handleSearchSelected('Internet')}
-                    disabled={loading}
-                  >
-                    Обычный поиск
-                  </Button>
-                  <Button
-                    startIcon={<Search />}
-                    variant="contained"
-                    color="secondary"
-                    onClick={() => handleSearchSelected('googlesearch')}
-                    disabled={loading}
-                  >
-                    Google Search
-                  </Button>
-                  <Button
-                    startIcon={<Bolt />}
-                    variant="contained"
-                    color="success"
-                    onClick={() => handleSearchSelected('OpenAI')}
-                    disabled={loading}
-                  >
-                    OpenAI
-                  </Button>
-                </Stack>
-              </Stack>
-            </Paper>
-          )}
 
           {loading && (
             <Paper
@@ -1022,10 +1146,31 @@ export function App() {
                     Товары
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Все товары в едином списке. Выберите нужные и запустите поиск.
+                    Все товары в едином списке. Используйте кнопки справа для запуска поиска по каждой строке.
                   </Typography>
                 </Box>
-                <Stack direction="row" spacing={1} alignItems="center">
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                  <ToggleButtonGroup
+                    size="small"
+                    exclusive
+                    value={tableSize}
+                    onChange={(_, value) => value && setTableSize(value)}
+                    aria-label="Размер таблицы"
+                  >
+                    <ToggleButton value="small">Компактная</ToggleButton>
+                    <ToggleButton value="medium">Нормальная</ToggleButton>
+                  </ToggleButtonGroup>
+                  <ToggleButtonGroup
+                    size="small"
+                    exclusive
+                    value={fontSize}
+                    onChange={(_, value) => value && setFontSize(value)}
+                    aria-label="Размер шрифта"
+                  >
+                    <ToggleButton value="small">Мелкий</ToggleButton>
+                    <ToggleButton value="medium">Средний</ToggleButton>
+                    <ToggleButton value="large">Крупный</ToggleButton>
+                  </ToggleButtonGroup>
                   <ToggleButtonGroup
                     size="small"
                     exclusive
@@ -1040,49 +1185,148 @@ export function App() {
                 </Stack>
               </Box>
               {filteredTableData.length === 0 ? (
-                <Typography color="text.secondary">Нет данных. Загрузите Excel файл для начала работы.</Typography>
+                <Typography color="text.secondary">Нет данных. Загрузите Excel файл или добавьте товары вручную.</Typography>
               ) : (
-                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 600, borderRadius: 3 }}>
-                  <Table stickyHeader size="small">
+                <TableContainer
+                  component={Paper}
+                  variant="outlined"
+                  sx={{
+                    maxHeight: 600,
+                    borderRadius: 3,
+                    overflowX: 'auto',
+                    '& .MuiTable-root': {
+                      minWidth: { xs: 800, md: 'auto' }
+                    },
+                    fontSize: tableFontSize
+                  }}
+                >
+                  <Table
+                    stickyHeader
+                    size={tableSize}
+                    sx={{
+                      tableLayout: 'fixed',
+                      '& .MuiTableCell-root': {
+                        fontSize: tableFontSize
+                      }
+                    }}
+                  >
                     <TableHead>
                       <TableRow>
-                        <TableCell padding="checkbox">
-                          <Checkbox
-                            checked={selectedIds.size === filteredTableData.length && filteredTableData.length > 0}
-                            indeterminate={selectedIds.size > 0 && selectedIds.size < filteredTableData.length}
-                            onChange={(e) => handleSelectAll(e.target.checked)}
-                          />
-                        </TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }} align="right">
-                          Действия
-                        </TableCell>
+                        <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize}>
+                          Article
+                        </ResizableCell>
+                        <ResizableCell column="manufacturer" width={columnWidths.manufacturer} onResize={handleColumnResize}>
+                          Manufacturer
+                        </ResizableCell>
+                        <ResizableCell column="alias" width={columnWidths.alias} onResize={handleColumnResize}>
+                          Alias
+                        </ResizableCell>
+                        <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
+                          Submitted
+                        </ResizableCell>
+                        <ResizableCell column="match" width={columnWidths.match} onResize={handleColumnResize}>
+                          Match
+                        </ResizableCell>
+                        <ResizableCell column="confidence" width={columnWidths.confidence} onResize={handleColumnResize}>
+                          Confidence
+                        </ResizableCell>
+                        <ResizableCell column="source" width={columnWidths.source} onResize={handleColumnResize}>
+                          Source
+                        </ResizableCell>
+                        <ResizableCell column="actions" width={columnWidths.actions} onResize={handleColumnResize}>
+                          <Box textAlign="center">Действия</Box>
+                        </ResizableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {filteredTableData.map((row) => (
-                        <TableRow key={row.key} hover selected={selectedIds.has(row.id)}>
-                          <TableCell padding="checkbox">
-                            <Checkbox
-                              checked={selectedIds.has(row.id)}
-                              onChange={(e) => handleSelectRow(row.id, e.target.checked)}
-                            />
+                        <TableRow key={row.key} hover>
+                          <TableCell sx={{ width: columnWidths.article, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.article}
                           </TableCell>
-                          <TableCell>{row.article}</TableCell>
-                          <TableCell>{row.manufacturer}</TableCell>
-                          <TableCell>{row.alias}</TableCell>
-                          <TableCell>{row.submitted}</TableCell>
-                          <TableCell>{renderMatchChip(row.matchStatus, row.matchConfidence)}</TableCell>
-                          <TableCell align="right">
-                            <Tooltip title="Удалить строку">
-                              <IconButton size="small" color="error" onClick={() => handleDeletePartRow(row.id)}>
-                                <DeleteForever fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
+                          <TableCell sx={{ width: columnWidths.manufacturer, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.manufacturer}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.alias, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.alias}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.submitted, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.submitted}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.match }}>
+                            {renderMatchChip(row.matchStatus, row.matchConfidence)}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.confidence }}>
+                            {row.confidence ? `${(row.confidence * 100).toFixed(1)}%` : '—'}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.source }}>
+                            {row.sourceUrl ? (
+                              <Tooltip title={row.sourceUrl}>
+                                <Box
+                                  component="a"
+                                  href={row.sourceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  sx={{
+                                    color: 'secondary.main',
+                                    textDecoration: 'none',
+                                    '&:hover': { textDecoration: 'underline' },
+                                    display: 'block',
+                                    maxWidth: 200,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                  }}
+                                >
+                                  {row.sourceUrl}
+                                </Box>
+                              </Tooltip>
+                            ) : (
+                              '—'
+                            )}
+                          </TableCell>
+                          <TableCell align="center" sx={{ width: columnWidths.actions }}>
+                            <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap>
+                              <Tooltip title="Поиск через Google Search">
+                                <IconButton
+                                  size="small"
+                                  color="secondary"
+                                  onClick={() => handleSearchSingleRow(row.id, ['googlesearch'])}
+                                  disabled={loading}
+                                >
+                                  <Search fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Поиск через OpenAI">
+                                <IconButton
+                                  size="small"
+                                  color="success"
+                                  onClick={() => handleSearchSingleRow(row.id, ['OpenAI'])}
+                                  disabled={loading}
+                                >
+                                  <Psychology fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Общий поиск (Internet → Google → OpenAI)">
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  onClick={() => handleSearchSingleRow(row.id, null)}
+                                  disabled={loading}
+                                >
+                                  <Search fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Удалить строку">
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => handleDeletePartRow(row.id)}
+                                >
+                                  <DeleteForever fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
                           </TableCell>
                         </TableRow>
                       ))}
