@@ -273,9 +273,9 @@ const HolidayLights = () => {
       sx={{
         position: 'fixed',
         inset: 0,
-        overflow: 'hidden',
+        overflow: 'visible',
         pointerEvents: 'none',
-        zIndex: -1,
+        zIndex: 0,
         background:
           'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.12), transparent 40%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.12), transparent 45%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.12), transparent 40%), linear-gradient(180deg, #e8f6ff 0%, #e7f0ff 45%, #f8f3ff 100%)'
       }}
