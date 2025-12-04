@@ -276,10 +276,59 @@ const HolidayLights = () => {
         overflow: 'visible',
         pointerEvents: 'none',
         zIndex: 0,
-        background:
-          'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.12), transparent 40%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.12), transparent 45%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.12), transparent 40%), linear-gradient(180deg, #e8f6ff 0%, #e7f0ff 45%, #f8f3ff 100%)'
+        background: `
+          radial-gradient(ellipse at 20% 0%, rgba(100, 200, 255, 0.3), transparent 40%),
+          radial-gradient(ellipse at 80% 0%, rgba(200, 150, 255, 0.25), transparent 35%),
+          radial-gradient(ellipse at 50% 0%, rgba(150, 220, 255, 0.2), transparent 50%),
+          linear-gradient(180deg,
+            #1a2a4a 0%,
+            #2d4a7c 15%,
+            #4a7ba7 30%,
+            #87b3d4 50%,
+            #b8d8f0 70%,
+            #e5f2fa 85%,
+            #ffffff 100%
+          )
+        `
       }}
     >
+      {/* Снежные холмы на заднем плане */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: '40%',
+          background: `
+            radial-gradient(ellipse 800px 300px at 20% 100%, rgba(255, 255, 255, 0.9), transparent),
+            radial-gradient(ellipse 600px 250px at 60% 100%, rgba(240, 248, 255, 0.85), transparent),
+            radial-gradient(ellipse 700px 280px at 90% 100%, rgba(255, 255, 255, 0.9), transparent),
+            linear-gradient(to top, rgba(255, 255, 255, 0.95) 0%, transparent 100%)
+          `,
+          zIndex: 0
+        }}
+      />
+
+      {/* Звезды на небе */}
+      {Array.from({ length: 30 }).map((_, i) => (
+        <Box
+          key={`star-${i}`}
+          sx={{
+            position: 'absolute',
+            top: `${Math.random() * 40}%`,
+            left: `${Math.random() * 100}%`,
+            width: '2px',
+            height: '2px',
+            borderRadius: '50%',
+            background: 'white',
+            boxShadow: '0 0 4px 1px rgba(255,255,255,0.8)',
+            animation: `${twinkle} ${2 + Math.random() * 3}s ease-in-out infinite`,
+            animationDelay: `${Math.random() * 3}s`,
+            zIndex: 1
+          }}
+        />
+      ))}
       {/* Падающий снег */}
       {Array.from({ length: 50 }).map((_, i) => (
         <Box
