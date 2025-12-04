@@ -50,6 +50,10 @@ def _upgrade_schema(connection) -> None:  # pragma: no cover - runtime bootstrap
         "submitted_manufacturer": "VARCHAR(255)",
         "match_status": "VARCHAR(50)",
         "match_confidence": "FLOAT",
+        "what_produces": "TEXT",
+        "website": "VARCHAR(500)",
+        "manufacturer_aliases": "TEXT",
+        "country": "VARCHAR(255)",
     }.items():
         if not name:
             continue

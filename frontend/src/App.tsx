@@ -534,7 +534,11 @@ export function App() {
       matchStatus: (record.match_status ?? null) as MatchStatus,
       matchConfidence: record.match_confidence ?? null,
       sourceUrl: record.source_url ?? null,
-      confidence: record.confidence ?? null
+      confidence: record.confidence ?? null,
+      whatProduces: record.what_produces ?? '—',
+      website: record.website ?? '—',
+      manufacturerAliases: record.manufacturer_aliases ?? '—',
+      country: record.country ?? '—'
     }))
   }, [history])
   const filteredTableData = useMemo(() => {
@@ -570,6 +574,7 @@ export function App() {
   const [tableSize, setTableSize] = useState<'small' | 'medium'>('small')
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium')
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+    checkbox: 50,
     article: 120,
     manufacturer: 150,
     alias: 120,
@@ -577,7 +582,11 @@ export function App() {
     match: 120,
     confidence: 100,
     source: 200,
-    actions: 300
+    whatProduces: 180,
+    website: 180,
+    manufacturerAliases: 180,
+    country: 120,
+    actions: 180
   })
 
   // Вычисляем размер шрифта в зависимости от выбранного значения
@@ -950,6 +959,19 @@ export function App() {
       manufacturer_hint: part.submitted_manufacturer ?? null
     }))
     await performSearch(selectedParts, [stage])
+    setSelectedIds(new Set())
+  }, [selectedIds, history])
+
+  const handleBatchSearch = useCallback(async (stages?: string[] | null) => {
+    if (selectedIds.size === 0) {
+      setSnackbar('Выберите хотя бы одну строку для поиска')
+      return
+    }
+    const selectedParts = history.filter(part => selectedIds.has(part.id)).map(part => ({
+      part_number: part.part_number,
+      manufacturer_hint: part.submitted_manufacturer ?? null
+    }))
+    await performSearch(selectedParts, stages)
     setSelectedIds(new Set())
   }, [selectedIds, history])
 
@@ -1425,6 +1447,53 @@ export function App() {
                   </ToggleButtonGroup>
                 </Stack>
               </Box>
+
+              {selectedIds.size > 0 && (
+                <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
+                  <Typography variant="body2" color="text.secondary">
+                    Выбрано строк: {selectedIds.size}
+                  </Typography>
+                  <Stack direction="row" spacing={1}>
+                    <Tooltip title="Поиск через Google Search для выбранных строк">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="secondary"
+                        startIcon={<Search />}
+                        onClick={() => handleBatchSearch(['googlesearch'])}
+                        disabled={loading}
+                      >
+                        Google Search
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title="Поиск через OpenAI для выбранных строк">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="success"
+                        startIcon={<Psychology />}
+                        onClick={() => handleBatchSearch(['OpenAI'])}
+                        disabled={loading}
+                      >
+                        OpenAI
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title="Общий поиск (Internet → Google → OpenAI) для выбранных строк">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="primary"
+                        startIcon={<Search />}
+                        onClick={() => handleBatchSearch(null)}
+                        disabled={loading}
+                      >
+                        Общий поиск
+                      </Button>
+                    </Tooltip>
+                  </Stack>
+                </Box>
+              )}
+
               {filteredTableData.length === 0 ? (
                 <Typography color="text.secondary">Нет данных. Загрузите Excel файл или добавьте товары вручную.</Typography>
               ) : (
@@ -1453,6 +1522,13 @@ export function App() {
                   >
                     <TableHead>
                       <TableRow>
+                        <TableCell padding="checkbox" sx={{ width: columnWidths.checkbox }}>
+                          <Checkbox
+                            checked={selectedIds.size === filteredTableData.length && filteredTableData.length > 0}
+                            indeterminate={selectedIds.size > 0 && selectedIds.size < filteredTableData.length}
+                            onChange={(e) => handleSelectAll(e.target.checked)}
+                          />
+                        </TableCell>
                         <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize}>
                           Article
                         </ResizableCell>
@@ -1474,6 +1550,18 @@ export function App() {
                         <ResizableCell column="source" width={columnWidths.source} onResize={handleColumnResize}>
                           Source
                         </ResizableCell>
+                        <ResizableCell column="whatProduces" width={columnWidths.whatProduces} onResize={handleColumnResize}>
+                          Что производит
+                        </ResizableCell>
+                        <ResizableCell column="website" width={columnWidths.website} onResize={handleColumnResize}>
+                          Сайт производителя
+                        </ResizableCell>
+                        <ResizableCell column="manufacturerAliases" width={columnWidths.manufacturerAliases} onResize={handleColumnResize}>
+                          Алиасы
+                        </ResizableCell>
+                        <ResizableCell column="country" width={columnWidths.country} onResize={handleColumnResize}>
+                          Страна
+                        </ResizableCell>
                         <ResizableCell column="actions" width={columnWidths.actions} onResize={handleColumnResize}>
                           <Box textAlign="center">Действия</Box>
                         </ResizableCell>
@@ -1482,6 +1570,22 @@ export function App() {
                     <TableBody>
                       {filteredTableData.map((row) => (
                         <TableRow key={row.key} hover>
+                          <TableCell padding="checkbox" sx={{ width: columnWidths.checkbox }}>
+                            <Checkbox
+                              checked={selectedIds.has(row.id)}
+                              onChange={(e) => {
+                                setSelectedIds(prev => {
+                                  const next = new Set(prev)
+                                  if (e.target.checked) {
+                                    next.add(row.id)
+                                  } else {
+                                    next.delete(row.id)
+                                  }
+                                  return next
+                                })
+                              }}
+                            />
+                          </TableCell>
                           <TableCell sx={{ width: columnWidths.article, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.article}
                           </TableCell>
@@ -1526,48 +1630,51 @@ export function App() {
                               '—'
                             )}
                           </TableCell>
+                          <TableCell sx={{ width: columnWidths.whatProduces, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.whatProduces}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.website }}>
+                            {row.website !== '—' ? (
+                              <Tooltip title={row.website}>
+                                <Box
+                                  component="a"
+                                  href={row.website}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  sx={{
+                                    color: 'secondary.main',
+                                    textDecoration: 'none',
+                                    '&:hover': { textDecoration: 'underline' },
+                                    display: 'block',
+                                    maxWidth: 150,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                  }}
+                                >
+                                  {row.website}
+                                </Box>
+                              </Tooltip>
+                            ) : (
+                              '—'
+                            )}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.manufacturerAliases, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.manufacturerAliases}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.country, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.country}
+                          </TableCell>
                           <TableCell align="center" sx={{ width: columnWidths.actions }}>
-                            <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap>
-                              <Tooltip title="Поиск через Google Search">
-                                <IconButton
-                                  size="small"
-                                  color="secondary"
-                                  onClick={() => handleSearchSingleRow(row.id, ['googlesearch'])}
-                                  disabled={loading}
-                                >
-                                  <Search fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Поиск через OpenAI">
-                                <IconButton
-                                  size="small"
-                                  color="success"
-                                  onClick={() => handleSearchSingleRow(row.id, ['OpenAI'])}
-                                  disabled={loading}
-                                >
-                                  <Psychology fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Общий поиск (Internet → Google → OpenAI)">
-                                <IconButton
-                                  size="small"
-                                  color="primary"
-                                  onClick={() => handleSearchSingleRow(row.id, null)}
-                                  disabled={loading}
-                                >
-                                  <Search fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Удалить строку">
-                                <IconButton
-                                  size="small"
-                                  color="error"
-                                  onClick={() => handleDeletePartRow(row.id)}
-                                >
-                                  <DeleteForever fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </Stack>
+                            <Tooltip title="Удалить строку">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleDeletePartRow(row.id)}
+                              >
+                                <DeleteForever fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           </TableCell>
                         </TableRow>
                       ))}

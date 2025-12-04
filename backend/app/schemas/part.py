@@ -48,6 +48,11 @@ class PartRead(BaseModel):
     confidence: Optional[float]
     source_url: Optional[str]
     debug_log: Optional[str]
+    # Новые поля
+    what_produces: Optional[str] = None
+    website: Optional[str] = None
+    manufacturer_aliases: Optional[str] = None
+    country: Optional[str] = None
     created_at: datetime
 
     class Config:
