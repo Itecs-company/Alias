@@ -32,6 +32,10 @@ export interface SearchResult {
   debug_log?: string | null
   search_stage?: string | null
   stage_history?: StageStatus[]
+  what_produces?: string | null
+  website?: string | null
+  manufacturer_aliases?: string | null
+  country?: string | null
 }
 
 export interface SearchResponse {

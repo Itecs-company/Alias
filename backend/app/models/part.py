@@ -43,6 +43,11 @@ class Part(Base):
     confidence: Mapped[float | None] = mapped_column(Float)
     source_url: Mapped[str | None] = mapped_column(Text)
     debug_log: Mapped[str | None] = mapped_column(Text)
+    # Новые поля
+    what_produces: Mapped[str | None] = mapped_column(Text)
+    website: Mapped[str | None] = mapped_column(String(500))
+    manufacturer_aliases: Mapped[str | None] = mapped_column(Text)
+    country: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     manufacturer: Mapped[Manufacturer | None] = relationship("Manufacturer", back_populates="parts")

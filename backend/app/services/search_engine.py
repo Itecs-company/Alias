@@ -45,6 +45,8 @@ DOMAIN_MANUFACTURER_HINTS: dict[str, str] = {
     "semiconductor.samsung.com": "Samsung Semiconductor",
     "samsung.com": "Samsung",
     "semtech.com": "Semtech",
+    "sibeco.net": "Sibeco",
+    "sibeco-russia.ru": "Sibeco",
 }
 
 KNOWN_MANUFACTURERS: list[str] = [
@@ -65,6 +67,7 @@ KNOWN_MANUFACTURERS: list[str] = [
     "Semtech",
     "Samsung",
     "Samsung Semiconductor",
+    "Sibeco",
 ]
 
 NOISY_PHRASES = (
@@ -193,18 +196,32 @@ class PartSearchEngine:
         return [item.get("link") for item in results if item.get("link")]
 
     async def _collect_urls(self, part: PartBase, providers: list[SearchProvider]) -> list[str]:
-        queries = [
-            f"{part.part_number} {part.manufacturer_hint} datasheet" if part.manufacturer_hint else None,
+        # Формируем запросы от простых к специфичным
+        queries = []
+
+        # Самый простой запрос - артикул + производитель (как в браузере)
+        if part.manufacturer_hint:
+            queries.append(f"{part.part_number} {part.manufacturer_hint}")
+
+        # Просто артикул
+        queries.append(part.part_number)
+
+        # Более специфичные запросы
+        if part.manufacturer_hint:
+            queries.append(f"{part.part_number} {part.manufacturer_hint} datasheet")
+
+        queries.extend([
             f"{part.part_number} datasheet manufacturer",
             f"{part.part_number} pdf",
-        ]
+        ])
+
         urls: list[str] = []
         for provider in providers:
             for query in filter(None, queries):
                 urls.extend(await self._search_with_provider(provider, query))
-                if len(urls) >= 10:
+                if len(urls) >= 15:  # Увеличили лимит для лучшего покрытия
                     break
-            if len(urls) >= 10:
+            if len(urls) >= 15:
                 break
         seen: set[str] = set()
         unique_urls: list[str] = []
@@ -217,7 +234,8 @@ class PartSearchEngine:
     async def _candidates_from_urls(self, part: PartBase, urls: list[str]) -> list[Candidate]:
         if not urls:
             return []
-        contents = await extract_from_urls(urls[:6])
+        # Увеличили количество анализируемых URL для лучшего покрытия
+        contents = await extract_from_urls(urls[:10])
         candidates: list[Candidate] = []
         for url, text in contents.items():
             candidate = self._guess_manufacturer_from_text(text, part, url)
@@ -301,9 +319,10 @@ class PartSearchEngine:
         manufacturer_names: list[str] = []
         for line in candidates:
             tokens = [
-                token.strip(" ,.;:()[]")
+                token.strip(" ,.;:()[]\"'")
                 for token in line.split()
-                if token.isalpha() and len(token) > 2
+                # Изменили условие: разрешаем токены с буквами и цифрами/дефисами
+                if any(c.isalpha() for c in token) and len(token) > 2
             ]
             filtered_tokens = [t for t in tokens if t.lower() not in STOPWORDS]
             if not filtered_tokens:
@@ -320,7 +339,8 @@ class PartSearchEngine:
                 score = match[1]
                 if not best_known or score > best_known[1]:
                     best_known = (match[0], score)
-        if best_known and best_known[1] >= 82:
+        # Снизили порог с 82 до 75 для большей гибкости
+        if best_known and best_known[1] >= 75:
             manufacturer = best_known[0]
             alias = self._alias_if_similar(part, manufacturer)
             confidence = min(0.97, best_known[1] / 100)
@@ -333,8 +353,9 @@ class PartSearchEngine:
                 manufacturer_names,
                 scorer=fuzz.WRatio,
             )
-            if match and match[1] >= 67:
-                confidence = max(0.67, match[1] / 100)
+            # Снизили порог с 67 до 60 для лучшего распознавания вариантов написания
+            if match and match[1] >= 60:
+                confidence = max(0.60, match[1] / 100)
                 manufacturer = match[0]
                 debug = f"Совпадение с подсказкой оператора ({confidence:.2f})"
                 return manufacturer, part.manufacturer_hint, confidence, debug
@@ -402,8 +423,7 @@ class PartSearchEngine:
         stage_history: list[StageStatus] = []
         final_candidate: Candidate | None = None
         final_stage: str | None = None
-        fallback_candidate: Candidate | None = None
-        fallback_stage: str | None = None
+        all_candidates: list[tuple[Candidate, str]] = []  # Все кандидаты (candidate, stage_name)
 
         stmt = select(Part).where(Part.part_number == part.part_number).order_by(Part.id.desc())
         existing_part = (await self.session.execute(stmt)).scalars().first()
@@ -491,14 +511,15 @@ class PartSearchEngine:
             elif not candidate:
                 message = "Получены данные, но производитель не определен"
             else:
+                # Сохраняем всех кандидатов для последующего выбора лучшего
+                all_candidates.append((candidate, config.name))
+
                 if config.confidence_threshold and candidate.confidence < config.confidence_threshold:
                     status = "low-confidence"
                     message = (
                         f"Достоверность {candidate.confidence:.2f} ниже порога "
                         f"{config.confidence_threshold:.2f}. Переход к следующему этапу"
                     )
-                    fallback_candidate = candidate
-                    fallback_stage = config.name
                 else:
                     status = "success"
                     final_candidate = candidate
@@ -542,6 +563,9 @@ class PartSearchEngine:
                 message = "OpenAI не смог определить производителя"
             else:
                 status = "success"
+                # Сохраняем кандидата от OpenAI
+                all_candidates.append((candidate, "OpenAI"))
+
                 if (final_candidate is None) or (
                     final_candidate.confidence is None
                     or candidate.confidence > final_candidate.confidence
@@ -567,14 +591,23 @@ class PartSearchEngine:
                 )
             )
 
-        if not final_candidate and fallback_candidate and fallback_stage:
-            final_candidate = fallback_candidate
-            final_stage = fallback_stage
+        # Если нет финального кандидата с высокой уверенностью, выбираем лучший из всех найденных
+        if not final_candidate and all_candidates:
+            # Сортируем по confidence и выбираем лучший
+            best_candidate, best_stage = max(all_candidates, key=lambda x: x[0].confidence)
+            final_candidate = best_candidate
+            final_stage = best_stage
+
+            # Обновляем сообщение для этапа, откуда взят результат
             for idx, stage in enumerate(stage_history):
-                if stage.name == fallback_stage and stage.status == "low-confidence":
-                    extra_msg = "Использован результат с низкой достоверностью из-за отсутствия альтернатив"
+                if stage.name == best_stage and stage.status == "low-confidence":
+                    extra_msg = (
+                        f"Использован результат с достоверностью {best_candidate.confidence:.2f} "
+                        f"как лучший из всех этапов поиска"
+                    )
                     stage_history[idx] = stage.model_copy(
                         update={
+                            "status": "success",
                             "message": f"{stage.message + ' · ' if stage.message else ''}{extra_msg}",
                         }
                     )

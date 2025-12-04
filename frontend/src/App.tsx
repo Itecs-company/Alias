@@ -50,7 +50,8 @@ import {
   Visibility,
   ListAlt,
   FilterAlt,
-  Psychology
+  Psychology,
+  Settings
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
@@ -166,6 +167,28 @@ const garlandSwing = keyframes`
   100% { transform: translateY(0) }
 `
 
+const snowfall = keyframes`
+  0% { transform: translateY(-10vh) translateX(0) rotate(0deg); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(110vh) translateX(100px) rotate(360deg); opacity: 0; }
+`
+
+const treeGlow = keyframes`
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(255,215,0,0.6)); }
+  50% { filter: drop-shadow(0 0 20px rgba(255,215,0,0.9)); }
+`
+
+const bounce = keyframes`
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+`
+
+const float = keyframes`
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-15px); }
+`
+
 const ResizableCell = ({
   column,
   width,
@@ -244,19 +267,87 @@ const ResizableCell = ({
 }
 
 const HolidayLights = () => {
-  const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff']
+  const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ff6b9a', '#00d4aa']
   return (
     <Box
       sx={{
         position: 'fixed',
         inset: 0,
-        overflow: 'hidden',
+        overflow: 'visible',
         pointerEvents: 'none',
-        zIndex: -1,
-        background:
-          'radial-gradient(circle at 10% 10%, rgba(15,163,177,0.12), transparent 40%), radial-gradient(circle at 80% 20%, rgba(255,107,154,0.12), transparent 45%), radial-gradient(circle at 30% 80%, rgba(139,92,246,0.12), transparent 40%), linear-gradient(180deg, #e8f6ff 0%, #e7f0ff 45%, #f8f3ff 100%)'
+        zIndex: 0,
+        background: `
+          radial-gradient(ellipse at 20% 0%, rgba(100, 200, 255, 0.3), transparent 40%),
+          radial-gradient(ellipse at 80% 0%, rgba(200, 150, 255, 0.25), transparent 35%),
+          radial-gradient(ellipse at 50% 0%, rgba(150, 220, 255, 0.2), transparent 50%),
+          linear-gradient(180deg,
+            #1a2a4a 0%,
+            #2d4a7c 15%,
+            #4a7ba7 30%,
+            #87b3d4 50%,
+            #b8d8f0 70%,
+            #e5f2fa 85%,
+            #ffffff 100%
+          )
+        `
       }}
     >
+      {/* Снежные холмы на заднем плане */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: '40%',
+          background: `
+            radial-gradient(ellipse 800px 300px at 20% 100%, rgba(255, 255, 255, 0.9), transparent),
+            radial-gradient(ellipse 600px 250px at 60% 100%, rgba(240, 248, 255, 0.85), transparent),
+            radial-gradient(ellipse 700px 280px at 90% 100%, rgba(255, 255, 255, 0.9), transparent),
+            linear-gradient(to top, rgba(255, 255, 255, 0.95) 0%, transparent 100%)
+          `,
+          zIndex: 0
+        }}
+      />
+
+      {/* Звезды на небе */}
+      {Array.from({ length: 30 }).map((_, i) => (
+        <Box
+          key={`star-${i}`}
+          sx={{
+            position: 'absolute',
+            top: `${Math.random() * 40}%`,
+            left: `${Math.random() * 100}%`,
+            width: '2px',
+            height: '2px',
+            borderRadius: '50%',
+            background: 'white',
+            boxShadow: '0 0 4px 1px rgba(255,255,255,0.8)',
+            animation: `${twinkle} ${2 + Math.random() * 3}s ease-in-out infinite`,
+            animationDelay: `${Math.random() * 3}s`,
+            zIndex: 1
+          }}
+        />
+      ))}
+      {/* Падающий снег */}
+      {Array.from({ length: 50 }).map((_, i) => (
+        <Box
+          key={`snow-${i}`}
+          sx={{
+            position: 'absolute',
+            top: '-10vh',
+            left: `${Math.random() * 100}%`,
+            fontSize: `${Math.random() * 10 + 10}px`,
+            animation: `${snowfall} ${Math.random() * 10 + 15}s linear infinite`,
+            animationDelay: `${Math.random() * 10}s`,
+            opacity: 0.8
+          }}
+        >
+          ❄
+        </Box>
+      ))}
+
+      {/* Верхняя гирлянда */}
       <Box
         sx={{
           position: 'absolute',
@@ -270,21 +361,158 @@ const HolidayLights = () => {
           animation: `${garlandSwing} 6s ease-in-out infinite`
         }}
       >
-        {Array.from({ length: 28 }).map((_, index) => (
+        {Array.from({ length: 35 }).map((_, index) => (
           <Box
-            key={index}
+            key={`top-${index}`}
             sx={{
-              width: 12,
-              height: 12,
+              width: 14,
+              height: 14,
               borderRadius: '50%',
               background: palette[index % palette.length],
-              boxShadow: `0 0 12px ${palette[index % palette.length]}`,
+              boxShadow: `0 0 15px ${palette[index % palette.length]}`,
               animation: `${twinkle} 2.6s ease-in-out infinite`,
               animationDelay: `${index * 70}ms`
             }}
           />
         ))}
       </Box>
+
+      {/* Нижняя гирлянда */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 12,
+          left: 0,
+          right: 0,
+          display: 'flex',
+          justifyContent: 'space-evenly',
+          px: 4,
+          zIndex: 1,
+          animation: `${garlandSwing} 7s ease-in-out infinite`
+        }}
+      >
+        {Array.from({ length: 35 }).map((_, index) => (
+          <Box
+            key={`bottom-${index}`}
+            sx={{
+              width: 14,
+              height: 14,
+              borderRadius: '50%',
+              background: palette[(index + 3) % palette.length],
+              boxShadow: `0 0 15px ${palette[(index + 3) % palette.length]}`,
+              animation: `${twinkle} 2.8s ease-in-out infinite`,
+              animationDelay: `${index * 80}ms`
+            }}
+          />
+        ))}
+      </Box>
+
+      {/* Ёлка в левом углу */}
+      <Box
+        sx={{
+          position: 'absolute',
+          left: 40,
+          bottom: 20,
+          fontSize: '180px',
+          animation: `${treeGlow} 3s ease-in-out infinite`,
+          zIndex: 2
+        }}
+      >
+        🎄
+        {/* Гирлянды на ёлке */}
+        {Array.from({ length: 12 }).map((_, i) => (
+          <Box
+            key={`tree-light-${i}`}
+            sx={{
+              position: 'absolute',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: palette[i % palette.length],
+              boxShadow: `0 0 12px ${palette[i % palette.length]}`,
+              top: `${20 + i * 12}%`,
+              left: `${30 + (i % 2 ? 15 : -15)}%`,
+              animation: `${twinkle} ${1.5 + Math.random()}s ease-in-out infinite`,
+              animationDelay: `${i * 100}ms`
+            }}
+          />
+        ))}
+      </Box>
+
+      {/* Подарки под ёлкой */}
+      <Box sx={{ position: 'absolute', left: 50, bottom: 10, fontSize: '32px', zIndex: 1 }}>
+        🎁
+      </Box>
+      <Box sx={{ position: 'absolute', left: 120, bottom: 15, fontSize: '28px', zIndex: 1 }}>
+        🎁
+      </Box>
+      <Box sx={{ position: 'absolute', left: 90, bottom: 5, fontSize: '24px', zIndex: 1 }}>
+        🎁
+      </Box>
+
+      {/* Олени */}
+      <Box
+        sx={{
+          position: 'absolute',
+          right: 100,
+          top: '30%',
+          fontSize: '64px',
+          animation: `${float} 4s ease-in-out infinite`,
+          zIndex: 2
+        }}
+      >
+        🦌
+      </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          right: 180,
+          top: '35%',
+          fontSize: '56px',
+          animation: `${float} 5s ease-in-out infinite`,
+          animationDelay: '1s',
+          zIndex: 2
+        }}
+      >
+        🦌
+      </Box>
+
+      {/* Гномы */}
+      <Box
+        sx={{
+          position: 'absolute',
+          left: '40%',
+          bottom: 30,
+          fontSize: '48px',
+          animation: `${bounce} 3s ease-in-out infinite`,
+          zIndex: 2
+        }}
+      >
+        🧙‍♂️
+      </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          right: '35%',
+          bottom: 25,
+          fontSize: '52px',
+          animation: `${bounce} 3.5s ease-in-out infinite`,
+          animationDelay: '0.5s',
+          zIndex: 2
+        }}
+      >
+        🎅
+      </Box>
+
+      {/* Дополнительные украшения */}
+      <Box sx={{ position: 'absolute', left: '20%', top: '20%', fontSize: '42px', animation: `${float} 6s ease-in-out infinite` }}>
+        ⭐
+      </Box>
+      <Box sx={{ position: 'absolute', right: '15%', top: '15%', fontSize: '38px', animation: `${float} 5.5s ease-in-out infinite`, animationDelay: '1s' }}>
+        ⭐
+      </Box>
+
+      {/* Фоновые эффекты */}
       <Box
         sx={{
           position: 'absolute',
@@ -333,7 +561,7 @@ export function App() {
   const [historyHidden, setHistoryHidden] = useState(false)
   const [manufacturerFilter, setManufacturerFilter] = useState<'all' | 'found' | 'missing'>('all')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [activePage, setActivePage] = useState<'dashboard' | 'logs'>('dashboard')
+  const [activePage, setActivePage] = useState<'dashboard' | 'logs' | 'settings'>('dashboard')
   const [logs, setLogs] = useState<SearchLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [logFilters, setLogFilters] = useState<{ provider: string; direction: string; q: string }>({
@@ -355,7 +583,11 @@ export function App() {
       matchStatus: (record.match_status ?? null) as MatchStatus,
       matchConfidence: record.match_confidence ?? null,
       sourceUrl: record.source_url ?? null,
-      confidence: record.confidence ?? null
+      confidence: record.confidence ?? null,
+      whatProduces: record.what_produces ?? '—',
+      website: record.website ?? '—',
+      manufacturerAliases: record.manufacturer_aliases ?? '—',
+      country: record.country ?? '—'
     }))
   }, [history])
   const filteredTableData = useMemo(() => {
@@ -391,6 +623,7 @@ export function App() {
   const [tableSize, setTableSize] = useState<'small' | 'medium'>('small')
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium')
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+    checkbox: 50,
     article: 120,
     manufacturer: 150,
     alias: 120,
@@ -398,7 +631,11 @@ export function App() {
     match: 120,
     confidence: 100,
     source: 200,
-    actions: 300
+    whatProduces: 180,
+    website: 180,
+    manufacturerAliases: 180,
+    country: 120,
+    actions: 180
   })
 
   // Вычисляем размер шрифта в зависимости от выбранного значения
@@ -774,6 +1011,19 @@ export function App() {
     setSelectedIds(new Set())
   }, [selectedIds, history])
 
+  const handleBatchSearch = useCallback(async (stages?: string[] | null) => {
+    if (selectedIds.size === 0) {
+      setSnackbar('Выберите хотя бы одну строку для поиска')
+      return
+    }
+    const selectedParts = history.filter(part => selectedIds.has(part.id)).map(part => ({
+      part_number: part.part_number,
+      manufacturer_hint: part.submitted_manufacturer ?? null
+    }))
+    await performSearch(selectedParts, stages)
+    setSelectedIds(new Set())
+  }, [selectedIds, history])
+
   const handleSearchSingleRow = useCallback(async (partId: number, stages?: string[] | null) => {
     const part = history.find(p => p.id === partId)
     if (!part) return
@@ -784,6 +1034,25 @@ export function App() {
     }
     await performSearch([partToSearch], stages)
   }, [history])
+
+  const handleBatchDelete = useCallback(async () => {
+    if (selectedIds.size === 0) {
+      setSnackbar('Выберите хотя бы одну строку для удаления')
+      return
+    }
+    if (!window.confirm(`Удалить ${selectedIds.size} строк(и)?`)) {
+      return
+    }
+    try {
+      // Удаляем все выбранные строки
+      await Promise.all(Array.from(selectedIds).map(id => deletePartById(id)))
+      await refreshHistory()
+      setSelectedIds(new Set())
+      setSnackbar(`Удалено строк: ${selectedIds.size}`)
+    } catch (error) {
+      setSnackbar('Не удалось удалить строки')
+    }
+  }, [selectedIds])
 
   const handleColumnResize = useCallback((column: string, width: number) => {
     setColumnWidths(prev => ({
@@ -954,6 +1223,11 @@ export function App() {
                   <ToggleButton value="logs" aria-label="Логи">
                     <ListAlt fontSize="small" />
                   </ToggleButton>
+                  {isAdmin && (
+                    <ToggleButton value="settings" aria-label="Настройки">
+                      <Settings fontSize="small" />
+                    </ToggleButton>
+                  )}
                 </ToggleButtonGroup>
                 <ToggleButtonGroup
                   value={themeMode}
@@ -992,7 +1266,64 @@ export function App() {
             </AppBar>
 
             <Container maxWidth="xl" sx={{ pt: { xs: 10, md: 14 }, pb: 8 }}>
-        {activePage === 'dashboard' ? (
+        {activePage === 'settings' ? (
+          <Stack spacing={4}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: { xs: 3, md: 4 },
+                borderRadius: 4,
+                border: '1px solid',
+                borderColor: 'divider'
+              }}
+            >
+              <Stack spacing={3}>
+                <Box>
+                  <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                    Настройки
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    Управление учетными данными оператора
+                  </Typography>
+                </Box>
+                <Divider />
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                    Обновить учетные данные оператора
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Измените логин и пароль для учетной записи оператора. После сохранения оператор должен будет войти с новыми данными.
+                  </Typography>
+                  <Stack spacing={2} maxWidth={500}>
+                    <TextField
+                      label="Новый логин"
+                      value={credentialsForm.username}
+                      onChange={(e) => setCredentialsForm((prev) => ({ ...prev, username: e.target.value }))}
+                      fullWidth
+                      required
+                    />
+                    <TextField
+                      label="Новый пароль"
+                      type="password"
+                      value={credentialsForm.password}
+                      onChange={(e) => setCredentialsForm((prev) => ({ ...prev, password: e.target.value }))}
+                      fullWidth
+                      required
+                    />
+                    <Button
+                      variant="contained"
+                      startIcon={<Lock />}
+                      onClick={handleCredentialsUpdate}
+                      disabled={credentialsLoading}
+                    >
+                      {credentialsLoading ? 'Сохранение...' : 'Сохранить учетные данные'}
+                    </Button>
+                  </Stack>
+                </Box>
+              </Stack>
+            </Paper>
+          </Stack>
+        ) : activePage === 'dashboard' ? (
           <Stack spacing={4}>
           <Paper
             elevation={0}
@@ -1184,6 +1515,65 @@ export function App() {
                   </ToggleButtonGroup>
                 </Stack>
               </Box>
+
+              {selectedIds.size > 0 && (
+                <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
+                  <Typography variant="body2" color="text.secondary">
+                    Выбрано строк: {selectedIds.size}
+                  </Typography>
+                  <Stack direction="row" spacing={1}>
+                    <Tooltip title="Поиск через Google Search для выбранных строк">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="secondary"
+                        startIcon={<Search />}
+                        onClick={() => handleBatchSearch(['googlesearch'])}
+                        disabled={loading}
+                      >
+                        Google Search
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title="Поиск через OpenAI для выбранных строк">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="success"
+                        startIcon={<Psychology />}
+                        onClick={() => handleBatchSearch(['OpenAI'])}
+                        disabled={loading}
+                      >
+                        OpenAI
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title="Общий поиск (Internet → Google → OpenAI) для выбранных строк">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="primary"
+                        startIcon={<Search />}
+                        onClick={() => handleBatchSearch(null)}
+                        disabled={loading}
+                      >
+                        Общий поиск
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title="Удалить выбранные строки">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="error"
+                        startIcon={<DeleteForever />}
+                        onClick={handleBatchDelete}
+                        disabled={loading}
+                      >
+                        Удалить ({selectedIds.size})
+                      </Button>
+                    </Tooltip>
+                  </Stack>
+                </Box>
+              )}
+
               {filteredTableData.length === 0 ? (
                 <Typography color="text.secondary">Нет данных. Загрузите Excel файл или добавьте товары вручную.</Typography>
               ) : (
@@ -1212,17 +1602,26 @@ export function App() {
                   >
                     <TableHead>
                       <TableRow>
+                        <TableCell padding="checkbox" sx={{ width: columnWidths.checkbox }}>
+                          <Checkbox
+                            checked={selectedIds.size === filteredTableData.length && filteredTableData.length > 0}
+                            indeterminate={selectedIds.size > 0 && selectedIds.size < filteredTableData.length}
+                            onChange={(e) => handleSelectAll(e.target.checked)}
+                          />
+                        </TableCell>
+                        {/* Известные данные */}
                         <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize}>
                           Article
                         </ResizableCell>
+                        <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
+                          Submitted
+                        </ResizableCell>
+                        {/* Данные от поиска */}
                         <ResizableCell column="manufacturer" width={columnWidths.manufacturer} onResize={handleColumnResize}>
                           Manufacturer
                         </ResizableCell>
                         <ResizableCell column="alias" width={columnWidths.alias} onResize={handleColumnResize}>
                           Alias
-                        </ResizableCell>
-                        <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
-                          Submitted
                         </ResizableCell>
                         <ResizableCell column="match" width={columnWidths.match} onResize={handleColumnResize}>
                           Match
@@ -1233,6 +1632,18 @@ export function App() {
                         <ResizableCell column="source" width={columnWidths.source} onResize={handleColumnResize}>
                           Source
                         </ResizableCell>
+                        <ResizableCell column="whatProduces" width={columnWidths.whatProduces} onResize={handleColumnResize}>
+                          Что производит
+                        </ResizableCell>
+                        <ResizableCell column="website" width={columnWidths.website} onResize={handleColumnResize}>
+                          Сайт производителя
+                        </ResizableCell>
+                        <ResizableCell column="manufacturerAliases" width={columnWidths.manufacturerAliases} onResize={handleColumnResize}>
+                          Алиасы
+                        </ResizableCell>
+                        <ResizableCell column="country" width={columnWidths.country} onResize={handleColumnResize}>
+                          Страна
+                        </ResizableCell>
                         <ResizableCell column="actions" width={columnWidths.actions} onResize={handleColumnResize}>
                           <Box textAlign="center">Действия</Box>
                         </ResizableCell>
@@ -1241,17 +1652,35 @@ export function App() {
                     <TableBody>
                       {filteredTableData.map((row) => (
                         <TableRow key={row.key} hover>
+                          <TableCell padding="checkbox" sx={{ width: columnWidths.checkbox }}>
+                            <Checkbox
+                              checked={selectedIds.has(row.id)}
+                              onChange={(e) => {
+                                setSelectedIds(prev => {
+                                  const next = new Set(prev)
+                                  if (e.target.checked) {
+                                    next.add(row.id)
+                                  } else {
+                                    next.delete(row.id)
+                                  }
+                                  return next
+                                })
+                              }}
+                            />
+                          </TableCell>
+                          {/* Известные данные */}
                           <TableCell sx={{ width: columnWidths.article, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.article}
                           </TableCell>
+                          <TableCell sx={{ width: columnWidths.submitted, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.submitted}
+                          </TableCell>
+                          {/* Данные от поиска */}
                           <TableCell sx={{ width: columnWidths.manufacturer, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.manufacturer}
                           </TableCell>
                           <TableCell sx={{ width: columnWidths.alias, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.alias}
-                          </TableCell>
-                          <TableCell sx={{ width: columnWidths.submitted, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.submitted}
                           </TableCell>
                           <TableCell sx={{ width: columnWidths.match }}>
                             {renderMatchChip(row.matchStatus, row.matchConfidence)}
@@ -1285,48 +1714,51 @@ export function App() {
                               '—'
                             )}
                           </TableCell>
+                          <TableCell sx={{ width: columnWidths.whatProduces, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.whatProduces}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.website }}>
+                            {row.website !== '—' ? (
+                              <Tooltip title={row.website}>
+                                <Box
+                                  component="a"
+                                  href={row.website}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  sx={{
+                                    color: 'secondary.main',
+                                    textDecoration: 'none',
+                                    '&:hover': { textDecoration: 'underline' },
+                                    display: 'block',
+                                    maxWidth: 150,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                  }}
+                                >
+                                  {row.website}
+                                </Box>
+                              </Tooltip>
+                            ) : (
+                              '—'
+                            )}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.manufacturerAliases, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.manufacturerAliases}
+                          </TableCell>
+                          <TableCell sx={{ width: columnWidths.country, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.country}
+                          </TableCell>
                           <TableCell align="center" sx={{ width: columnWidths.actions }}>
-                            <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap>
-                              <Tooltip title="Поиск через Google Search">
-                                <IconButton
-                                  size="small"
-                                  color="secondary"
-                                  onClick={() => handleSearchSingleRow(row.id, ['googlesearch'])}
-                                  disabled={loading}
-                                >
-                                  <Search fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Поиск через OpenAI">
-                                <IconButton
-                                  size="small"
-                                  color="success"
-                                  onClick={() => handleSearchSingleRow(row.id, ['OpenAI'])}
-                                  disabled={loading}
-                                >
-                                  <Psychology fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Общий поиск (Internet → Google → OpenAI)">
-                                <IconButton
-                                  size="small"
-                                  color="primary"
-                                  onClick={() => handleSearchSingleRow(row.id, null)}
-                                  disabled={loading}
-                                >
-                                  <Search fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Удалить строку">
-                                <IconButton
-                                  size="small"
-                                  color="error"
-                                  onClick={() => handleDeletePartRow(row.id)}
-                                >
-                                  <DeleteForever fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </Stack>
+                            <Tooltip title="Удалить строку">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleDeletePartRow(row.id)}
+                              >
+                                <DeleteForever fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           </TableCell>
                         </TableRow>
                       ))}

@@ -185,12 +185,27 @@ async def delete_part(part_id: int, session: AsyncSession = Depends(get_db)) -> 
 
 @protected_router.post("/parts", response_model=PartRead)
 async def create_part(part: PartCreate, session: AsyncSession = Depends(get_db)) -> PartRead:
-    engine = PartSearchEngine(session)
-    await engine.search_part(part, debug=True)
+    """Создает товар вручную без автоматического поиска"""
+    # Проверяем, существует ли уже товар с таким артикулом
+    stmt = select(Part).where(Part.part_number == part.part_number).order_by(Part.id.desc())
+    existing_part = (await session.execute(stmt)).scalars().first()
+
+    if existing_part:
+        # Если товар уже существует, обновляем submitted_manufacturer если указан
+        if part.manufacturer_hint:
+            existing_part.submitted_manufacturer = part.manufacturer_hint
+            await session.commit()
+        return PartRead.model_validate(existing_part)
+
+    # Создаем новый товар
+    new_part = Part(
+        part_number=part.part_number,
+        submitted_manufacturer=part.manufacturer_hint
+    )
+    session.add(new_part)
     await session.commit()
-    stmt = select(Part).where(Part.part_number == part.part_number)
-    db_part = (await session.execute(stmt)).scalar_one()
-    return PartRead.model_validate(db_part)
+    await session.refresh(new_part)
+    return PartRead.model_validate(new_part)
 
 
 @protected_router.post("/search", response_model=SearchResponse)
