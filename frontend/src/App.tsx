@@ -1035,6 +1035,25 @@ export function App() {
     await performSearch([partToSearch], stages)
   }, [history])
 
+  const handleBatchDelete = useCallback(async () => {
+    if (selectedIds.size === 0) {
+      setSnackbar('Выберите хотя бы одну строку для удаления')
+      return
+    }
+    if (!window.confirm(`Удалить ${selectedIds.size} строк(и)?`)) {
+      return
+    }
+    try {
+      // Удаляем все выбранные строки
+      await Promise.all(Array.from(selectedIds).map(id => deletePartById(id)))
+      await refreshHistory()
+      setSelectedIds(new Set())
+      setSnackbar(`Удалено строк: ${selectedIds.size}`)
+    } catch (error) {
+      setSnackbar('Не удалось удалить строки')
+    }
+  }, [selectedIds])
+
   const handleColumnResize = useCallback((column: string, width: number) => {
     setColumnWidths(prev => ({
       ...prev,
@@ -1539,6 +1558,18 @@ export function App() {
                         Общий поиск
                       </Button>
                     </Tooltip>
+                    <Tooltip title="Удалить выбранные строки">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="error"
+                        startIcon={<DeleteForever />}
+                        onClick={handleBatchDelete}
+                        disabled={loading}
+                      >
+                        Удалить ({selectedIds.size})
+                      </Button>
+                    </Tooltip>
                   </Stack>
                 </Box>
               )}
@@ -1578,17 +1609,19 @@ export function App() {
                             onChange={(e) => handleSelectAll(e.target.checked)}
                           />
                         </TableCell>
+                        {/* Известные данные */}
                         <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize}>
                           Article
                         </ResizableCell>
+                        <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
+                          Submitted
+                        </ResizableCell>
+                        {/* Данные от поиска */}
                         <ResizableCell column="manufacturer" width={columnWidths.manufacturer} onResize={handleColumnResize}>
                           Manufacturer
                         </ResizableCell>
                         <ResizableCell column="alias" width={columnWidths.alias} onResize={handleColumnResize}>
                           Alias
-                        </ResizableCell>
-                        <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
-                          Submitted
                         </ResizableCell>
                         <ResizableCell column="match" width={columnWidths.match} onResize={handleColumnResize}>
                           Match
@@ -1635,17 +1668,19 @@ export function App() {
                               }}
                             />
                           </TableCell>
+                          {/* Известные данные */}
                           <TableCell sx={{ width: columnWidths.article, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.article}
                           </TableCell>
+                          <TableCell sx={{ width: columnWidths.submitted, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.submitted}
+                          </TableCell>
+                          {/* Данные от поиска */}
                           <TableCell sx={{ width: columnWidths.manufacturer, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.manufacturer}
                           </TableCell>
                           <TableCell sx={{ width: columnWidths.alias, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.alias}
-                          </TableCell>
-                          <TableCell sx={{ width: columnWidths.submitted, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.submitted}
                           </TableCell>
                           <TableCell sx={{ width: columnWidths.match }}>
                             {renderMatchChip(row.matchStatus, row.matchConfidence)}
