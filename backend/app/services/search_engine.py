@@ -155,7 +155,34 @@ KNOWN_MANUFACTURERS: list[str] = [
     "Samsung",
     "Samsung Semiconductor",
     "Sibeco",
+    "СИБЕКО",
+    "Сибеко",
 ]
+
+# Словарь сопоставления кириллических и латинских названий
+CYRILLIC_TO_LATIN_MANUFACTURERS: dict[str, str] = {
+    "сибеко": "Sibeco",
+    "сибэко": "Sibeco",
+}
+
+
+def normalize_manufacturer_name(name: str) -> str:
+    """
+    Нормализует название производителя, преобразуя кириллические названия в латинские.
+    """
+    normalized = name.strip()
+    # Проверяем прямое совпадение в словаре (регистронезависимо)
+    lower_name = normalized.lower()
+    if lower_name in CYRILLIC_TO_LATIN_MANUFACTURERS:
+        return CYRILLIC_TO_LATIN_MANUFACTURERS[lower_name]
+
+    # Проверяем fuzzy matching с кириллическими вариантами
+    for cyrillic, latin in CYRILLIC_TO_LATIN_MANUFACTURERS.items():
+        if fuzz.ratio(lower_name, cyrillic) > 85:
+            return latin
+
+    return normalized
+
 
 NOISY_PHRASES = (
     "verify you are",
@@ -734,7 +761,9 @@ class PartSearchEngine:
                 match_confidence=match_confidence,
             )
 
-        manufacturer = await self.resolver.resolve(final_candidate.manufacturer)
+        # Нормализуем название производителя (преобразуем кириллицу в латиницу)
+        normalized_manufacturer = normalize_manufacturer_name(final_candidate.manufacturer)
+        manufacturer = await self.resolver.resolve(normalized_manufacturer)
         if final_candidate.alias_used:
             await self.resolver.sync_aliases(manufacturer, [final_candidate.alias_used])
         manufacturer_name = manufacturer.name
