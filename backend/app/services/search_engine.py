@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import Counter
 from dataclasses import dataclass
 from typing import List
 from urllib.parse import urlparse
 
+import httpx
 from loguru import logger
+from openai import AsyncOpenAI
 from rapidfuzz import fuzz, process
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
+from app.core.http import httpx_client_kwargs
 from app.models.part import Manufacturer, ManufacturerAlias, Part
 from app.schemas.part import PartBase, SearchResult, StageStatus
 
@@ -23,6 +28,88 @@ from .search_providers import (
     get_fallback_provider,
     get_google_provider,
 )
+
+settings = get_settings()
+
+
+@dataclass
+class ManufacturerInfo:
+    """Дополнительная информация о производителе"""
+    what_produces: str | None = None
+    website: str | None = None
+    manufacturer_aliases: str | None = None
+    country: str | None = None
+
+
+class ManufacturerInfoExtractor:
+    """Извлечение дополнительной информации о производителе через OpenAI"""
+
+    def __init__(self):
+        if settings.openai_api_key:
+            http_client = httpx.AsyncClient(**httpx_client_kwargs())
+            self.client = AsyncOpenAI(api_key=settings.openai_api_key, http_client=http_client)
+            self.model = settings.openai_model_default
+        else:
+            self.client = None
+            logger.warning("OpenAI API key is missing. Manufacturer info extraction disabled.")
+
+    async def extract_info(self, manufacturer_name: str) -> ManufacturerInfo:
+        """Извлекает информацию о производителе"""
+        if not self.client:
+            return ManufacturerInfo()
+
+        try:
+            system_prompt = (
+                "You are an electronics industry expert. Given a manufacturer name, "
+                "provide structured information about them. "
+                "Respond ONLY with valid JSON in this exact format: "
+                '{"what_produces": "brief description of what they produce", '
+                '"website": "official website URL", '
+                '"aliases": "comma-separated alternative names/brands", '
+                '"country": "country of origin"}. '
+                "Keep descriptions concise (under 100 chars). If information is unknown, use null."
+            )
+
+            user_prompt = f"Provide information about manufacturer: {manufacturer_name}"
+
+            completion = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0,
+                max_tokens=300,
+            )
+
+            if not completion.choices[0].message:
+                return ManufacturerInfo()
+
+            output = completion.choices[0].message.content
+            if not output:
+                return ManufacturerInfo()
+
+            # Извлекаем JSON из ответа (может быть обернут в markdown)
+            if "```json" in output:
+                output = output.split("```json")[1].split("```")[0].strip()
+            elif "```" in output:
+                output = output.split("```")[1].split("```")[0].strip()
+
+            data = json.loads(output)
+
+            return ManufacturerInfo(
+                what_produces=data.get("what_produces"),
+                website=data.get("website"),
+                manufacturer_aliases=data.get("aliases"),
+                country=data.get("country"),
+            )
+
+        except json.JSONDecodeError:
+            logger.debug(f"Failed to parse JSON from OpenAI for manufacturer: {manufacturer_name}")
+            return ManufacturerInfo()
+        except Exception as e:
+            logger.debug(f"Error extracting manufacturer info for {manufacturer_name}: {e}")
+            return ManufacturerInfo()
 
 
 DOMAIN_MANUFACTURER_HINTS: dict[str, str] = {
@@ -179,6 +266,7 @@ class PartSearchEngine:
         self.fallback_provider = fallback_provider or get_fallback_provider()
         self._attach_recorder()
         self.resolver = ManufacturerResolver(session)
+        self.info_extractor = ManufacturerInfoExtractor()
 
     def _attach_recorder(self) -> None:
         for provider in [*self.providers, self.google_provider, self.fallback_provider]:
@@ -651,6 +739,9 @@ class PartSearchEngine:
             await self.resolver.sync_aliases(manufacturer, [final_candidate.alias_used])
         manufacturer_name = manufacturer.name
 
+        # Извлекаем дополнительную информацию о производителе
+        manufacturer_info = await self.info_extractor.extract_info(manufacturer_name)
+
         if existing_part:
             target = existing_part
             target.manufacturer = manufacturer
@@ -670,6 +761,11 @@ class PartSearchEngine:
         target.confidence = final_candidate.confidence
         target.source_url = final_candidate.source_url
         target.debug_log = final_candidate.debug_log if debug else None
+        # Сохраняем дополнительную информацию о производителе
+        target.what_produces = manufacturer_info.what_produces
+        target.website = manufacturer_info.website
+        target.manufacturer_aliases = manufacturer_info.manufacturer_aliases
+        target.country = manufacturer_info.country
         await self.session.flush()
         return SearchResult(
             part_number=part.part_number,
@@ -683,6 +779,10 @@ class PartSearchEngine:
             submitted_manufacturer=part.manufacturer_hint,
             match_status=match_status,
             match_confidence=match_confidence,
+            what_produces=manufacturer_info.what_produces,
+            website=manufacturer_info.website,
+            manufacturer_aliases=manufacturer_info.manufacturer_aliases,
+            country=manufacturer_info.country,
         )
 
     async def search_many(self, items: list[PartBase], *, debug: bool = False, stages: list[str] | None = None) -> list[SearchResult]:
