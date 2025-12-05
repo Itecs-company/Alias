@@ -314,9 +314,20 @@ class PartSearchEngine:
         # Формируем запросы от простых к специфичным
         queries = []
 
+        # Проверяем, есть ли латинский эквивалент для кириллического названия
+        latin_hint = None
+        if part.manufacturer_hint:
+            latin_hint = normalize_manufacturer_name(part.manufacturer_hint)
+            # Если нормализация дала другое название, значит была кириллица
+            if latin_hint != part.manufacturer_hint:
+                logger.debug(f"Normalized manufacturer hint: {part.manufacturer_hint} -> {latin_hint}")
+
         # Самый простой запрос - артикул + производитель (как в браузере)
         if part.manufacturer_hint:
             queries.append(f"{part.part_number} {part.manufacturer_hint}")
+            # Добавляем латинский вариант, если он отличается
+            if latin_hint and latin_hint != part.manufacturer_hint:
+                queries.append(f"{part.part_number} {latin_hint}")
 
         # Просто артикул
         queries.append(part.part_number)
@@ -324,6 +335,8 @@ class PartSearchEngine:
         # Более специфичные запросы
         if part.manufacturer_hint:
             queries.append(f"{part.part_number} {part.manufacturer_hint} datasheet")
+            if latin_hint and latin_hint != part.manufacturer_hint:
+                queries.append(f"{part.part_number} {latin_hint} datasheet")
 
         queries.extend([
             f"{part.part_number} datasheet manufacturer",
@@ -513,14 +526,26 @@ class PartSearchEngine:
         if not matches:
             return None
         counts = Counter(matches)
-        return counts.most_common(1)[0][0]
+        most_common = counts.most_common(1)[0][0]
+        # Нормализуем название (кириллица -> латиница)
+        return normalize_manufacturer_name(most_common)
 
     def _alias_if_similar(self, part: PartBase, manufacturer: str) -> str | None:
         if not part.manufacturer_hint:
             return None
+
+        # Проверяем прямое сходство
         score = fuzz.WRatio(part.manufacturer_hint, manufacturer)
         if score >= 60:
             return part.manufacturer_hint
+
+        # Проверяем сходство нормализованной подсказки с производителем
+        normalized_hint = normalize_manufacturer_name(part.manufacturer_hint)
+        if normalized_hint != part.manufacturer_hint:
+            score_normalized = fuzz.WRatio(normalized_hint, manufacturer)
+            if score_normalized >= 60:
+                return part.manufacturer_hint
+
         return None
 
     def _evaluate_match(
