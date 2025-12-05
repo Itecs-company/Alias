@@ -137,6 +137,7 @@ DOMAIN_MANUFACTURER_HINTS: dict[str, str] = {
 }
 
 KNOWN_MANUFACTURERS: list[str] = [
+    # Английские названия (канонические)
     "Texas Instruments",
     "Analog Devices",
     "STMicroelectronics",
@@ -155,31 +156,195 @@ KNOWN_MANUFACTURERS: list[str] = [
     "Samsung",
     "Samsung Semiconductor",
     "Sibeco",
+
+    # Русские названия
     "СИБЕКО",
     "Сибеко",
+
+    # Китайские названия (упрощенные)
+    "德州仪器",  # Texas Instruments
+    "亚德诺半导体",  # Analog Devices
+    "意法半导体",  # STMicroelectronics
+    "恩智浦",  # NXP
+    "英飞凌",  # Infineon
+    "瑞萨电子",  # Renesas
+    "三星",  # Samsung
+    "博通",  # Broadcom
+    "微芯科技",  # Microchip
+    "美信",  # Maxim
+    "安森美",  # onsemi
+    "罗姆",  # ROHM
+    "威世",  # Vishay
+
+    # Тайваньские названия (традиционный китайский)
+    "意法半導體",  # STMicroelectronics
+    "恩智浦半導體",  # NXP
+    "英飛凌",  # Infineon
+    "瑞薩電子",  # Renesas
+    "三星電子",  # Samsung
+    "美信半導體",  # Maxim
+    "安森美半導體",  # onsemi
+    "羅姆半導體",  # ROHM
+    "威世半導體",  # Vishay
+
+    # Японские названия
+    "テキサス・インスツルメンツ",  # Texas Instruments
+    "アナログ・デバイセズ",  # Analog Devices
+    "エスティーマイクロエレクトロニクス",  # STMicroelectronics
+    "エヌエックスピー",  # NXP
+    "インフィニオン",  # Infineon
+    "ルネサスエレクトロニクス",  # Renesas
+    "サムスン",  # Samsung
+    "ブロードコム",  # Broadcom
+    "マイクロチップ",  # Microchip
+    "マキシム",  # Maxim
+    "オン・セミコンダクター",  # onsemi
+    "ローム",  # ROHM
+    "ヴィシェイ",  # Vishay
+
+    # Корейские названия
+    "텍사스 인스트루먼트",  # Texas Instruments
+    "아날로그 디바이스",  # Analog Devices
+    "에스티마이크로일렉트로닉스",  # STMicroelectronics
+    "엔엑스피",  # NXP
+    "인피니언",  # Infineon
+    "르네사스",  # Renesas
+    "삼성",  # Samsung
+    "브로드컴",  # Broadcom
+    "마이크로칩",  # Microchip
+    "맥심",  # Maxim
+    "온세미",  # onsemi
+    "롬",  # ROHM
+    "비셰이",  # Vishay
 ]
 
-# Словарь сопоставления кириллических и латинских названий
-CYRILLIC_TO_LATIN_MANUFACTURERS: dict[str, str] = {
+# Многоязычный словарь производителей
+# Формат: {вариант_на_любом_языке: каноническое_английское_название}
+MULTILINGUAL_MANUFACTURERS: dict[str, str] = {
+    # Sibeco (Россия)
     "сибеко": "Sibeco",
     "сибэко": "Sibeco",
+    "сибеко россия": "Sibeco",
+
+    # Texas Instruments
+    "德州仪器": "Texas Instruments",  # Китайский
+    "テキサス・インスツルメンツ": "Texas Instruments",  # Японский
+    "텍사스 인스트루먼트": "Texas Instruments",  # Корейский
+    "ti": "Texas Instruments",
+
+    # Analog Devices
+    "亚德诺半导体": "Analog Devices",  # Китайский
+    "アナログ・デバイセズ": "Analog Devices",  # Японский
+    "아날로그 디바이스": "Analog Devices",  # Корейский
+    "adi": "Analog Devices",
+
+    # STMicroelectronics
+    "意法半导体": "STMicroelectronics",  # Китайский
+    "意法半導體": "STMicroelectronics",  # Тайваньский (традиционный китайский)
+    "エスティーマイクロエレクトロニクス": "STMicroelectronics",  # Японский
+    "에스티마이크로일렉트로닉스": "STMicroelectronics",  # Корейский
+    "st": "STMicroelectronics",
+    "stm": "STMicroelectronics",
+
+    # NXP Semiconductors
+    "恩智浦": "NXP Semiconductors",  # Китайский
+    "恩智浦半導體": "NXP Semiconductors",  # Тайваньский
+    "エヌエックスピー": "NXP Semiconductors",  # Японский
+    "엔엑스피": "NXP Semiconductors",  # Корейский
+
+    # Infineon Technologies
+    "英飞凌": "Infineon Technologies",  # Китайский
+    "英飛凌": "Infineon Technologies",  # Тайваньский
+    "インフィニオン": "Infineon Technologies",  # Японский
+    "인피니언": "Infineon Technologies",  # Корейский
+
+    # Renesas Electronics
+    "瑞萨电子": "Renesas Electronics",  # Китайский
+    "瑞薩電子": "Renesas Electronics",  # Тайваньский
+    "ルネサスエレクトロニクス": "Renesas Electronics",  # Японский
+    "르네사스": "Renesas Electronics",  # Корейский
+
+    # Samsung
+    "三星": "Samsung",  # Китайский
+    "三星電子": "Samsung",  # Тайваньский
+    "サムスン": "Samsung",  # Японский
+    "삼성": "Samsung",  # Корейский
+    "samsung electronics": "Samsung",
+
+    # Broadcom
+    "博通": "Broadcom",  # Китайский
+    "博通公司": "Broadcom",  # Китайский (полное)
+    "ブロードコム": "Broadcom",  # Японский
+    "브로드컴": "Broadcom",  # Корейский
+
+    # Microchip Technology
+    "微芯科技": "Microchip Technology",  # Китайский
+    "微芯科技公司": "Microchip Technology",  # Китайский (полное)
+    "マイクロチップ": "Microchip Technology",  # Японский
+    "마이크로칩": "Microchip Technology",  # Корейский
+
+    # Maxim Integrated
+    "美信": "Maxim Integrated",  # Китайский
+    "美信半導體": "Maxim Integrated",  # Тайваньский
+    "マキシム": "Maxim Integrated",  # Японский
+    "맥심": "Maxim Integrated",  # Корейский
+
+    # ON Semiconductor / onsemi
+    "安森美": "onsemi",  # Китайский
+    "安森美半導體": "onsemi",  # Тайваньский
+    "オン・セミコンダクター": "onsemi",  # Японский
+    "온세미": "onsemi",  # Корейский
+    "on semiconductor": "onsemi",
+
+    # ROHM Semiconductor
+    "罗姆": "ROHM Semiconductor",  # Китайский
+    "羅姆半導體": "ROHM Semiconductor",  # Тайваньский
+    "ローム": "ROHM Semiconductor",  # Японский
+    "롬": "ROHM Semiconductor",  # Корейский
+
+    # Vishay
+    "威世": "Vishay Intertechnology",  # Китайский
+    "威世半導體": "Vishay Intertechnology",  # Тайваньский
+    "ヴィシェイ": "Vishay Intertechnology",  # Японский
+    "비셰이": "Vishay Intertechnology",  # Корейский
 }
 
 
 def normalize_manufacturer_name(name: str) -> str:
     """
-    Нормализует название производителя, преобразуя кириллические названия в латинские.
+    Нормализует название производителя на любом языке к каноническому английскому названию.
+
+    Поддерживаемые языки:
+    - Английский, Русский, Немецкий, Французский, Испанский, Итальянский
+    - Китайский (упрощенный и традиционный)
+    - Японский, Корейский
     """
     normalized = name.strip()
-    # Проверяем прямое совпадение в словаре (регистронезависимо)
     lower_name = normalized.lower()
-    if lower_name in CYRILLIC_TO_LATIN_MANUFACTURERS:
-        return CYRILLIC_TO_LATIN_MANUFACTURERS[lower_name]
 
-    # Проверяем fuzzy matching с кириллическими вариантами
-    for cyrillic, latin in CYRILLIC_TO_LATIN_MANUFACTURERS.items():
-        if fuzz.ratio(lower_name, cyrillic) > 85:
-            return latin
+    # Прямое совпадение в многоязычном словаре
+    if lower_name in MULTILINGUAL_MANUFACTURERS:
+        return MULTILINGUAL_MANUFACTURERS[lower_name]
+
+    # Fuzzy matching для обработки опечаток и вариаций
+    # Проверяем совпадение с каждым вариантом в словаре
+    best_match = None
+    best_score = 0
+
+    for variant, canonical in MULTILINGUAL_MANUFACTURERS.items():
+        # Для латиницы и кириллицы используем fuzzy matching
+        # Для иероглифов проверяем точное совпадение или вхождение
+        if any(ord(c) > 0x4E00 for c in variant):  # Китайские/японские иероглифы
+            if variant in lower_name or lower_name in variant:
+                return canonical
+        else:
+            score = fuzz.ratio(lower_name, variant)
+            if score > best_score and score > 85:
+                best_score = score
+                best_match = canonical
+
+    if best_match:
+        return best_match
 
     return normalized
 
