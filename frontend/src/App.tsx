@@ -682,6 +682,7 @@ export function App() {
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(savedSettings?.fontSize || 'medium')
   const [rowHeight, setRowHeight] = useState<number>(savedSettings?.rowHeight || 53)
   const [fullscreenMode, setFullscreenMode] = useState<boolean>(savedSettings?.fullscreenMode || false)
+  const [fitToScreen, setFitToScreen] = useState<boolean>(savedSettings?.fitToScreen || false)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(savedSettings?.columnWidths || {
     checkbox: 50,
     article: 120,
@@ -897,10 +898,11 @@ export function App() {
       fontSize,
       rowHeight,
       fullscreenMode,
+      fitToScreen,
       columnWidths
     }
     window.localStorage.setItem(TABLE_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
-  }, [tableSize, fontSize, rowHeight, fullscreenMode, columnWidths])
+  }, [tableSize, fontSize, rowHeight, fullscreenMode, fitToScreen, columnWidths])
 
   useEffect(() => {
     if (!auth) {
@@ -1569,6 +1571,17 @@ export function App() {
                       {fullscreenMode ? <FullscreenExit /> : <Fullscreen />}
                     </IconButton>
                   </Tooltip>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={fitToScreen}
+                        onChange={(e) => setFitToScreen(e.target.checked)}
+                        size="small"
+                      />
+                    }
+                    label="Подогнать под экран"
+                    sx={{ ml: 1 }}
+                  />
                   <ToggleButtonGroup
                     size="small"
                     exclusive
@@ -1669,29 +1682,39 @@ export function App() {
                   component={Paper}
                   variant="outlined"
                   sx={{
-                    maxHeight: fullscreenMode ? 'calc(100vh - 200px)' : 600,
+                    maxHeight: fitToScreen ? 'none' : (fullscreenMode ? 'calc(100vh - 200px)' : 600),
                     borderRadius: 3,
-                    overflowX: 'auto',
+                    overflowX: fitToScreen ? 'hidden' : 'auto',
+                    overflowY: fitToScreen ? 'hidden' : 'auto',
                     '& .MuiTable-root': {
-                      minWidth: { xs: 800, md: 'auto' }
+                      minWidth: fitToScreen ? 'auto' : { xs: 800, md: 'auto' }
                     },
                     fontSize: tableFontSize,
-                    transition: 'max-height 0.3s ease-in-out'
+                    transition: 'all 0.3s ease-in-out',
+                    height: fitToScreen ? 'calc(100vh - 350px)' : 'auto'
                   }}
                 >
                   <Table
-                    stickyHeader
+                    stickyHeader={!fitToScreen}
                     size={tableSize}
                     sx={{
-                      tableLayout: 'fixed',
+                      tableLayout: fitToScreen ? 'auto' : 'fixed',
+                      width: fitToScreen ? '100%' : 'auto',
+                      height: fitToScreen ? '100%' : 'auto',
                       '& .MuiTableCell-root': {
-                        fontSize: tableFontSize
+                        fontSize: tableFontSize,
+                        ...(fitToScreen && {
+                          padding: '4px 8px',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        })
                       }
                     }}
                   >
                     <TableHead>
                       <TableRow>
-                        <TableCell padding="checkbox" sx={{ width: columnWidths.checkbox }}>
+                        <TableCell padding="checkbox" sx={{ width: fitToScreen ? 'auto' : columnWidths.checkbox }}>
                           <Checkbox
                             checked={selectedIds.size === filteredTableData.length && filteredTableData.length > 0}
                             indeterminate={selectedIds.size > 0 && selectedIds.size < filteredTableData.length}
@@ -1699,53 +1722,71 @@ export function App() {
                           />
                         </TableCell>
                         {/* Известные данные */}
-                        <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize}>
-                          Article
-                        </ResizableCell>
-                        <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
-                          Submitted
-                        </ResizableCell>
-                        {/* Данные от поиска */}
-                        <ResizableCell column="manufacturer" width={columnWidths.manufacturer} onResize={handleColumnResize}>
-                          Manufacturer
-                        </ResizableCell>
-                        <ResizableCell column="alias" width={columnWidths.alias} onResize={handleColumnResize}>
-                          Alias
-                        </ResizableCell>
-                        <ResizableCell column="match" width={columnWidths.match} onResize={handleColumnResize}>
-                          Match
-                        </ResizableCell>
-                        <ResizableCell column="confidence" width={columnWidths.confidence} onResize={handleColumnResize}>
-                          Confidence
-                        </ResizableCell>
-                        <ResizableCell column="source" width={columnWidths.source} onResize={handleColumnResize}>
-                          Source
-                        </ResizableCell>
-                        <ResizableCell column="whatProduces" width={columnWidths.whatProduces} onResize={handleColumnResize}>
-                          Что производит
-                        </ResizableCell>
-                        <ResizableCell column="website" width={columnWidths.website} onResize={handleColumnResize}>
-                          Сайт производителя
-                        </ResizableCell>
-                        <ResizableCell column="manufacturerAliases" width={columnWidths.manufacturerAliases} onResize={handleColumnResize}>
-                          Алиасы
-                        </ResizableCell>
-                        <ResizableCell column="country" width={columnWidths.country} onResize={handleColumnResize}>
-                          Страна
-                        </ResizableCell>
-                        <ResizableCell column="actions" width={columnWidths.actions} onResize={handleColumnResize}>
-                          <Box textAlign="center">Действия</Box>
-                        </ResizableCell>
+                        {fitToScreen ? (
+                          <>
+                            <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Confidence</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Source</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Что производит</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Сайт производителя</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Алиасы</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Страна</TableCell>
+                            <TableCell sx={{ fontWeight: 600, textAlign: 'center' }}>Действия</TableCell>
+                          </>
+                        ) : (
+                          <>
+                            <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize}>
+                              Article
+                            </ResizableCell>
+                            <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
+                              Submitted
+                            </ResizableCell>
+                            <ResizableCell column="manufacturer" width={columnWidths.manufacturer} onResize={handleColumnResize}>
+                              Manufacturer
+                            </ResizableCell>
+                            <ResizableCell column="alias" width={columnWidths.alias} onResize={handleColumnResize}>
+                              Alias
+                            </ResizableCell>
+                            <ResizableCell column="match" width={columnWidths.match} onResize={handleColumnResize}>
+                              Match
+                            </ResizableCell>
+                            <ResizableCell column="confidence" width={columnWidths.confidence} onResize={handleColumnResize}>
+                              Confidence
+                            </ResizableCell>
+                            <ResizableCell column="source" width={columnWidths.source} onResize={handleColumnResize}>
+                              Source
+                            </ResizableCell>
+                            <ResizableCell column="whatProduces" width={columnWidths.whatProduces} onResize={handleColumnResize}>
+                              Что производит
+                            </ResizableCell>
+                            <ResizableCell column="website" width={columnWidths.website} onResize={handleColumnResize}>
+                              Сайт производителя
+                            </ResizableCell>
+                            <ResizableCell column="manufacturerAliases" width={columnWidths.manufacturerAliases} onResize={handleColumnResize}>
+                              Алиасы
+                            </ResizableCell>
+                            <ResizableCell column="country" width={columnWidths.country} onResize={handleColumnResize}>
+                              Страна
+                            </ResizableCell>
+                            <ResizableCell column="actions" width={columnWidths.actions} onResize={handleColumnResize}>
+                              <Box textAlign="center">Действия</Box>
+                            </ResizableCell>
+                          </>
+                        )}
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {filteredTableData.map((row, rowIndex) => (
-                        <TableRow key={row.key} hover sx={{ height: rowHeight }}>
+                        <TableRow key={row.key} hover sx={{ height: fitToScreen ? 'auto' : rowHeight }}>
                           <TableCell
                             padding="checkbox"
                             sx={{
-                              width: columnWidths.checkbox,
-                              height: rowHeight,
+                              width: fitToScreen ? 'auto' : columnWidths.checkbox,
+                              height: fitToScreen ? 'auto' : rowHeight,
                               position: 'relative',
                               userSelect: rowResizer.isResizing ? 'none' : 'auto'
                             }}
@@ -1764,7 +1805,7 @@ export function App() {
                                 })
                               }}
                             />
-                            {rowIndex === 0 && (
+                            {!fitToScreen && rowIndex === 0 && (
                               <Box
                                 onMouseDown={(e) => rowResizer.handleMouseDown(e, rowHeight)}
                                 sx={{
@@ -1784,26 +1825,26 @@ export function App() {
                             )}
                           </TableCell>
                           {/* Известные данные */}
-                          <TableCell sx={{ width: columnWidths.article, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.article, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.article}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.submitted, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.submitted, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.submitted}
                           </TableCell>
                           {/* Данные от поиска */}
-                          <TableCell sx={{ width: columnWidths.manufacturer, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturer, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.manufacturer}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.alias, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.alias, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.alias}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.match, height: rowHeight }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.match, height: fitToScreen ? 'auto' : rowHeight }}>
                             {renderMatchChip(row.matchStatus, row.matchConfidence)}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.confidence, height: rowHeight }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.confidence, height: fitToScreen ? 'auto' : rowHeight }}>
                             {row.confidence ? `${(row.confidence * 100).toFixed(1)}%` : '—'}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.source, height: rowHeight }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.source, height: fitToScreen ? 'auto' : rowHeight }}>
                             {row.sourceUrl ? (
                               <Tooltip title={row.sourceUrl}>
                                 <Box
@@ -1829,10 +1870,10 @@ export function App() {
                               '—'
                             )}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.whatProduces, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.whatProduces, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.whatProduces}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.website, height: rowHeight }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.website, height: fitToScreen ? 'auto' : rowHeight }}>
                             {row.website !== '—' ? (
                               <Tooltip title={row.website}>
                                 <Box
@@ -1845,7 +1886,7 @@ export function App() {
                                     textDecoration: 'none',
                                     '&:hover': { textDecoration: 'underline' },
                                     display: 'block',
-                                    maxWidth: 150,
+                                    maxWidth: fitToScreen ? 'none' : 150,
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
                                     whiteSpace: 'nowrap'
@@ -1858,13 +1899,13 @@ export function App() {
                               '—'
                             )}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.manufacturerAliases, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturerAliases, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.manufacturerAliases}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.country, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.country, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.country}
                           </TableCell>
-                          <TableCell align="center" sx={{ width: columnWidths.actions, height: rowHeight }}>
+                          <TableCell align="center" sx={{ width: fitToScreen ? 'auto' : columnWidths.actions, height: fitToScreen ? 'auto' : rowHeight }}>
                             <Tooltip title="Удалить строку">
                               <IconButton
                                 size="small"
