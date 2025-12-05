@@ -1137,6 +1137,8 @@ export function App() {
     setRowHeight(height)
   }, [])
 
+  const rowResizer = RowHeightResizer({ onResize: handleRowHeightResize })
+
   const handleExport = async (type: 'pdf' | 'excel') => {
     try {
       const response = type === 'pdf' ? await exportPdf() : await exportExcel()
@@ -1737,9 +1739,7 @@ export function App() {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {filteredTableData.map((row, rowIndex) => {
-                        const rowResizer = RowHeightResizer({ onResize: handleRowHeightResize })
-                        return (
+                      {filteredTableData.map((row, rowIndex) => (
                         <TableRow key={row.key} hover sx={{ height: rowHeight }}>
                           <TableCell
                             padding="checkbox"
@@ -1876,7 +1876,7 @@ export function App() {
                             </Tooltip>
                           </TableCell>
                         </TableRow>
-                      )})}
+                      ))}
                     </TableBody>
                   </Table>
                 </TableContainer>
