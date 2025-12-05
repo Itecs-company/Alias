@@ -36,7 +36,7 @@ def _build_table_rows(parts: list[Part]) -> list[dict[str, str]]:
                 "Article": part.part_number,
                 "Manufacturer": manufacturer,
                 "Alias": alias,
-                "Submitted": submitted,
+                "Req.Mnfc": submitted,
                 "Match": match,
                 "What Produces": part.what_produces or "—",
                 "Website": part.website or "—",
@@ -52,7 +52,7 @@ async def export_parts_to_excel(session: AsyncSession) -> Path:
     result = await session.execute(stmt)
     parts = result.scalars().all()
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
-    columns = ["Article", "Manufacturer", "Alias", "Submitted", "Match", "What Produces", "Website", "Manufacturer Aliases", "Country"]
+    columns = ["Article", "Manufacturer", "Alias", "Req.Mnfc", "Match", "What Produces", "Website", "Manufacturer Aliases", "Country"]
     df = pd.DataFrame(_build_table_rows(parts), columns=columns)
     export_path = settings.storage_dir / "export.xlsx"
     df.to_excel(export_path, index=False)
@@ -108,7 +108,7 @@ async def export_parts_to_pdf(session: AsyncSession) -> Path:
     pdf.ln(2)
 
     # Увеличенная ширина колонок для альбомной ориентации (общая ширина ~277mm)
-    headers = ["Article", "Manufacturer", "Alias", "Submitted", "Match", "What Produces", "Website", "Aliases", "Country"]
+    headers = ["Article", "Manufacturer", "Alias", "Req.Mnfc", "Match", "What Produces", "Website", "Aliases", "Country"]
     col_widths = [30, 35, 25, 30, 28, 40, 35, 30, 24]  # Сумма: 277mm
     pdf.set_font(font_name, style="B", size=9)
     for header, width in zip(headers, col_widths):
@@ -126,7 +126,7 @@ async def export_parts_to_pdf(session: AsyncSession) -> Path:
                 str(row["Article"]),
                 str(row["Manufacturer"]),
                 str(row["Alias"]),
-                str(row["Submitted"]),
+                str(row["Req.Mnfc"]),
                 str(row["Match"]),
                 str(row["What Produces"]),
                 str(row["Website"]),

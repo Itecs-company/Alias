@@ -314,8 +314,82 @@ const RowHeightResizer = ({
   }
 }
 
+const Santa = () => {
+  return (
+    <>
+      {/* Большой Санта справа внизу */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 40,
+          right: 40,
+          fontSize: '140px',
+          zIndex: 5,
+          animation: `${drift} 5s ease-in-out infinite`,
+          filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.4))',
+          transform: 'rotate(-8deg)'
+        }}
+      >
+        🎅
+      </Box>
+      {/* Маленькие Санты по экрану */}
+      <Box
+        sx={{
+          position: 'absolute',
+          top: '15%',
+          left: '10%',
+          fontSize: '60px',
+          zIndex: 5,
+          animation: `${twinkle} 3s ease-in-out infinite`,
+        }}
+      >
+        🎅
+      </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          top: '25%',
+          right: '15%',
+          fontSize: '50px',
+          zIndex: 5,
+          animation: `${drift} 4s ease-in-out infinite`,
+          animationDelay: '1s'
+        }}
+      >
+        🤶
+      </Box>
+      {/* Эльфы */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: '20%',
+          left: '20%',
+          fontSize: '45px',
+          zIndex: 5,
+          animation: `${bounce} 2s ease-in-out infinite`,
+        }}
+      >
+        🧝
+      </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: '15%',
+          left: '30%',
+          fontSize: '40px',
+          zIndex: 5,
+          animation: `${bounce} 2.5s ease-in-out infinite`,
+          animationDelay: '0.5s'
+        }}
+      >
+        🧝‍♀️
+      </Box>
+    </>
+  )
+}
+
 const HolidayLights = () => {
-  const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ff6b9a', '#00d4aa']
+  const palette = ['#ff0000', '#00ff00', '#ffeb3b', '#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ff6b9a', '#00d4aa']
   return (
     <Box
       sx={{
@@ -325,16 +399,17 @@ const HolidayLights = () => {
         pointerEvents: 'none',
         zIndex: 0,
         background: `
-          radial-gradient(ellipse at 20% 0%, rgba(100, 200, 255, 0.3), transparent 40%),
-          radial-gradient(ellipse at 80% 0%, rgba(200, 150, 255, 0.25), transparent 35%),
-          radial-gradient(ellipse at 50% 0%, rgba(150, 220, 255, 0.2), transparent 50%),
+          radial-gradient(ellipse at 20% 0%, rgba(100, 200, 255, 0.4), transparent 40%),
+          radial-gradient(ellipse at 80% 0%, rgba(200, 150, 255, 0.35), transparent 35%),
+          radial-gradient(ellipse at 50% 0%, rgba(150, 220, 255, 0.3), transparent 50%),
           linear-gradient(180deg,
-            #1a2a4a 0%,
-            #2d4a7c 15%,
-            #4a7ba7 30%,
-            #87b3d4 50%,
-            #b8d8f0 70%,
-            #e5f2fa 85%,
+            #0f1f3f 0%,
+            #1a2a4a 10%,
+            #2d4a7c 20%,
+            #4a7ba7 35%,
+            #87b3d4 55%,
+            #b8d8f0 75%,
+            #e5f2fa 88%,
             #ffffff 100%
           )
         `
@@ -378,17 +453,18 @@ const HolidayLights = () => {
         />
       ))}
       {/* Падающий снег */}
-      {Array.from({ length: 50 }).map((_, i) => (
+      {Array.from({ length: 80 }).map((_, i) => (
         <Box
           key={`snow-${i}`}
           sx={{
             position: 'absolute',
             top: '-10vh',
             left: `${Math.random() * 100}%`,
-            fontSize: `${Math.random() * 10 + 10}px`,
-            animation: `${snowfall} ${Math.random() * 10 + 15}s linear infinite`,
+            fontSize: `${Math.random() * 12 + 12}px`,
+            animation: `${snowfall} ${Math.random() * 10 + 12}s linear infinite`,
             animationDelay: `${Math.random() * 10}s`,
-            opacity: 0.8
+            opacity: 0.9,
+            filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.8))'
           }}
         >
           ❄
@@ -409,17 +485,17 @@ const HolidayLights = () => {
           animation: `${garlandSwing} 6s ease-in-out infinite`
         }}
       >
-        {Array.from({ length: 35 }).map((_, index) => (
+        {Array.from({ length: 50 }).map((_, index) => (
           <Box
             key={`top-${index}`}
             sx={{
-              width: 14,
-              height: 14,
+              width: 16,
+              height: 16,
               borderRadius: '50%',
               background: palette[index % palette.length],
-              boxShadow: `0 0 15px ${palette[index % palette.length]}`,
-              animation: `${twinkle} 2.6s ease-in-out infinite`,
-              animationDelay: `${index * 70}ms`
+              boxShadow: `0 0 20px 3px ${palette[index % palette.length]}`,
+              animation: `${twinkle} 2.2s ease-in-out infinite`,
+              animationDelay: `${index * 50}ms`
             }}
           />
         ))}
@@ -439,17 +515,17 @@ const HolidayLights = () => {
           animation: `${garlandSwing} 7s ease-in-out infinite`
         }}
       >
-        {Array.from({ length: 35 }).map((_, index) => (
+        {Array.from({ length: 50 }).map((_, index) => (
           <Box
             key={`bottom-${index}`}
             sx={{
-              width: 14,
-              height: 14,
+              width: 16,
+              height: 16,
               borderRadius: '50%',
               background: palette[(index + 3) % palette.length],
-              boxShadow: `0 0 15px ${palette[(index + 3) % palette.length]}`,
-              animation: `${twinkle} 2.8s ease-in-out infinite`,
-              animationDelay: `${index * 80}ms`
+              boxShadow: `0 0 20px 3px ${palette[(index + 3) % palette.length]}`,
+              animation: `${twinkle} 2.4s ease-in-out infinite`,
+              animationDelay: `${index * 60}ms`
             }}
           />
         ))}
@@ -581,6 +657,17 @@ const HolidayLights = () => {
           animation: `${glowwave} 8s ease-in-out infinite`
         }}
       />
+
+      {/* Санта Клаус и его команда */}
+      <Santa />
+
+      {/* Больше праздничных элементов */}
+      <Box sx={{ position: 'absolute', top: '10%', left: '5%', fontSize: '50px', animation: `${twinkle} 3s ease-in-out infinite` }}>🎁</Box>
+      <Box sx={{ position: 'absolute', top: '40%', right: '8%', fontSize: '45px', animation: `${float} 4.5s ease-in-out infinite` }}>🎁</Box>
+      <Box sx={{ position: 'absolute', bottom: '30%', left: '50%', fontSize: '38px', animation: `${bounce} 3s ease-in-out infinite` }}>🔔</Box>
+      <Box sx={{ position: 'absolute', top: '30%', left: '70%', fontSize: '42px', animation: `${drift} 5s ease-in-out infinite` }}>🕯️</Box>
+      <Box sx={{ position: 'absolute', top: '50%', left: '15%', fontSize: '40px', animation: `${twinkle} 4s ease-in-out infinite`, animationDelay: '1s' }}>🎄</Box>
+      <Box sx={{ position: 'absolute', bottom: '40%', right: '25%', fontSize: '48px', animation: `${float} 6s ease-in-out infinite`, animationDelay: '0.5s' }}>☃️</Box>
     </Box>
   )
 }
@@ -1725,7 +1812,7 @@ export function App() {
                         {fitToScreen ? (
                           <>
                             <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Req.Mnfc</TableCell>
                             <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
                             <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
                             <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
@@ -1743,7 +1830,7 @@ export function App() {
                               Article
                             </ResizableCell>
                             <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
-                              Submitted
+                              Req.Mnfc
                             </ResizableCell>
                             <ResizableCell column="manufacturer" width={columnWidths.manufacturer} onResize={handleColumnResize}>
                               Manufacturer
