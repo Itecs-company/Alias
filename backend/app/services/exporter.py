@@ -59,6 +59,27 @@ async def export_parts_to_excel(session: AsyncSession) -> Path:
     return export_path
 
 
+def _wrap_text(text: str, max_width: int, pdf: FPDF) -> list[str]:
+    """Разбивает текст на строки, чтобы он помещался в заданную ширину."""
+    words = text.split()
+    lines = []
+    current_line = ""
+
+    for word in words:
+        test_line = current_line + " " + word if current_line else word
+        if pdf.get_string_width(test_line) <= max_width - 4:  # -4 для отступов
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = word
+
+    if current_line:
+        lines.append(current_line)
+
+    return lines if lines else [text[:30]]  # Если текст не разбился, обрезаем
+
+
 async def export_parts_to_pdf(session: AsyncSession) -> Path:
     stmt = select(Part)
     result = await session.execute(stmt)
@@ -100,15 +121,51 @@ async def export_parts_to_pdf(session: AsyncSession) -> Path:
         pdf.ln()
     else:
         for row in rows:
-            pdf.cell(col_widths[0], 8, str(row["Article"]), border=1)
-            pdf.cell(col_widths[1], 8, str(row["Manufacturer"]), border=1)
-            pdf.cell(col_widths[2], 8, str(row["Alias"]), border=1)
-            pdf.cell(col_widths[3], 8, str(row["Submitted"]), border=1)
-            pdf.cell(col_widths[4], 8, str(row["Match"]), border=1)
-            pdf.cell(col_widths[5], 8, str(row["What Produces"])[:25], border=1)
-            pdf.cell(col_widths[6], 8, str(row["Website"])[:25], border=1)
-            pdf.cell(col_widths[7], 8, str(row["Manufacturer Aliases"])[:20], border=1)
-            pdf.cell(col_widths[8], 8, str(row["Country"]), border=1, ln=1)
+            # Подготавливаем данные для ячеек
+            cells_data = [
+                str(row["Article"]),
+                str(row["Manufacturer"]),
+                str(row["Alias"]),
+                str(row["Submitted"]),
+                str(row["Match"]),
+                str(row["What Produces"]),
+                str(row["Website"]),
+                str(row["Manufacturer Aliases"]),
+                str(row["Country"])
+            ]
+
+            # Разбиваем длинный текст на строки для каждой ячейки
+            wrapped_cells = []
+            max_lines = 1
+            for i, (text, width) in enumerate(zip(cells_data, col_widths)):
+                lines = _wrap_text(text, width, pdf)
+                wrapped_cells.append(lines)
+                max_lines = max(max_lines, len(lines))
+
+            # Рассчитываем высоту строки (минимум 8, + дополнительно для каждой строки)
+            row_height = max(8, max_lines * 5)
+
+            # Запоминаем начальную позицию Y
+            start_y = pdf.get_y()
+            start_x = pdf.get_x()
+
+            # Рисуем каждую ячейку
+            for i, (lines, width) in enumerate(zip(wrapped_cells, col_widths)):
+                # Позиционируем курсор для каждой ячейки
+                current_x = start_x + sum(col_widths[:i])
+                pdf.set_xy(current_x, start_y)
+
+                # Рисуем границу ячейки
+                pdf.rect(current_x, start_y, width, row_height)
+
+                # Выводим текст построчно с вертикальным центрированием
+                text_y_offset = (row_height - len(lines) * 5) / 2
+                for line_idx, line in enumerate(lines):
+                    pdf.set_xy(current_x + 2, start_y + text_y_offset + line_idx * 5)
+                    pdf.cell(width - 4, 5, line, border=0)
+
+            # Переходим на следующую строку
+            pdf.set_xy(start_x, start_y + row_height)
 
     export_path = settings.storage_dir / "export.pdf"
     pdf.output(export_path)
