@@ -51,7 +51,9 @@ import {
   ListAlt,
   FilterAlt,
   Psychology,
-  Settings
+  Settings,
+  Fullscreen,
+  FullscreenExit
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
@@ -142,6 +144,7 @@ const matchStatusColor: Record<Exclude<MatchStatus, null>, 'success' | 'error' |
 type AuthState = { token: string; username: string; role: 'admin' | 'user' }
 const AUTH_STORAGE_KEY = 'aliasfinder:auth'
 const THEME_STORAGE_KEY = 'aliasfinder:theme'
+const TABLE_SETTINGS_STORAGE_KEY = 'aliasfinder:table-settings'
 
 const twinkle = keyframes`
   0% { opacity: 0.25; transform: translateY(0px) scale(0.9); }
@@ -264,6 +267,51 @@ const ResizableCell = ({
       />
     </TableCell>
   )
+}
+
+const RowHeightResizer = ({
+  onResize
+}: {
+  onResize: (height: number) => void
+}) => {
+  const [isResizing, setIsResizing] = useState(false)
+  const [startY, setStartY] = useState(0)
+  const [startHeight, setStartHeight] = useState(0)
+
+  const handleMouseDown = (e: React.MouseEvent, currentHeight: number) => {
+    setIsResizing(true)
+    setStartY(e.clientY)
+    setStartHeight(currentHeight)
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const diff = e.clientY - startY
+      const newHeight = Math.max(30, startHeight + diff)
+      onResize(newHeight)
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing, startY, startHeight, onResize])
+
+  return {
+    isResizing,
+    handleMouseDown
+  }
 }
 
 const HolidayLights = () => {
@@ -620,9 +668,21 @@ export function App() {
     { status: 'idle' }
   )
   const [uploadedItems, setUploadedItems] = useState<PartRequestItem[]>([])
-  const [tableSize, setTableSize] = useState<'small' | 'medium'>('small')
-  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium')
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+
+  // Load table settings from localStorage
+  const loadTableSettings = () => {
+    if (typeof window === 'undefined') return null
+    const stored = window.localStorage.getItem(TABLE_SETTINGS_STORAGE_KEY)
+    return stored ? JSON.parse(stored) : null
+  }
+
+  const savedSettings = loadTableSettings()
+
+  const [tableSize, setTableSize] = useState<'small' | 'medium'>(savedSettings?.tableSize || 'small')
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(savedSettings?.fontSize || 'medium')
+  const [rowHeight, setRowHeight] = useState<number>(savedSettings?.rowHeight || 53)
+  const [fullscreenMode, setFullscreenMode] = useState<boolean>(savedSettings?.fullscreenMode || false)
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(savedSettings?.columnWidths || {
     checkbox: 50,
     article: 120,
     manufacturer: 150,
@@ -829,6 +889,18 @@ export function App() {
     if (typeof window === 'undefined') return
     window.localStorage.setItem(THEME_STORAGE_KEY, themeMode)
   }, [themeMode])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const settings = {
+      tableSize,
+      fontSize,
+      rowHeight,
+      fullscreenMode,
+      columnWidths
+    }
+    window.localStorage.setItem(TABLE_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+  }, [tableSize, fontSize, rowHeight, fullscreenMode, columnWidths])
 
   useEffect(() => {
     if (!auth) {
@@ -1059,6 +1131,10 @@ export function App() {
       ...prev,
       [column]: Math.max(80, width)
     }))
+  }, [])
+
+  const handleRowHeightResize = useCallback((height: number) => {
+    setRowHeight(height)
   }, [])
 
   const handleExport = async (type: 'pdf' | 'excel') => {
@@ -1481,6 +1557,16 @@ export function App() {
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                  <Tooltip title={fullscreenMode ? "Выйти из полноэкранного режима" : "Полноэкранный режим"}>
+                    <IconButton
+                      size="small"
+                      color={fullscreenMode ? "primary" : "default"}
+                      onClick={() => setFullscreenMode(!fullscreenMode)}
+                      sx={{ border: '1px solid', borderColor: 'divider' }}
+                    >
+                      {fullscreenMode ? <FullscreenExit /> : <Fullscreen />}
+                    </IconButton>
+                  </Tooltip>
                   <ToggleButtonGroup
                     size="small"
                     exclusive
@@ -1581,13 +1667,14 @@ export function App() {
                   component={Paper}
                   variant="outlined"
                   sx={{
-                    maxHeight: 600,
+                    maxHeight: fullscreenMode ? 'calc(100vh - 200px)' : 600,
                     borderRadius: 3,
                     overflowX: 'auto',
                     '& .MuiTable-root': {
                       minWidth: { xs: 800, md: 'auto' }
                     },
-                    fontSize: tableFontSize
+                    fontSize: tableFontSize,
+                    transition: 'max-height 0.3s ease-in-out'
                   }}
                 >
                   <Table
@@ -1650,9 +1737,19 @@ export function App() {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {filteredTableData.map((row) => (
-                        <TableRow key={row.key} hover>
-                          <TableCell padding="checkbox" sx={{ width: columnWidths.checkbox }}>
+                      {filteredTableData.map((row, rowIndex) => {
+                        const rowResizer = RowHeightResizer({ onResize: handleRowHeightResize })
+                        return (
+                        <TableRow key={row.key} hover sx={{ height: rowHeight }}>
+                          <TableCell
+                            padding="checkbox"
+                            sx={{
+                              width: columnWidths.checkbox,
+                              height: rowHeight,
+                              position: 'relative',
+                              userSelect: rowResizer.isResizing ? 'none' : 'auto'
+                            }}
+                          >
                             <Checkbox
                               checked={selectedIds.has(row.id)}
                               onChange={(e) => {
@@ -1667,28 +1764,46 @@ export function App() {
                                 })
                               }}
                             />
+                            {rowIndex === 0 && (
+                              <Box
+                                onMouseDown={(e) => rowResizer.handleMouseDown(e, rowHeight)}
+                                sx={{
+                                  position: 'absolute',
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  height: 5,
+                                  cursor: 'row-resize',
+                                  backgroundColor: rowResizer.isResizing ? 'primary.main' : 'transparent',
+                                  '&:hover': {
+                                    backgroundColor: 'primary.light'
+                                  },
+                                  zIndex: 1
+                                }}
+                              />
+                            )}
                           </TableCell>
                           {/* Известные данные */}
-                          <TableCell sx={{ width: columnWidths.article, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: columnWidths.article, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.article}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.submitted, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: columnWidths.submitted, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.submitted}
                           </TableCell>
                           {/* Данные от поиска */}
-                          <TableCell sx={{ width: columnWidths.manufacturer, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: columnWidths.manufacturer, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.manufacturer}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.alias, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: columnWidths.alias, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.alias}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.match }}>
+                          <TableCell sx={{ width: columnWidths.match, height: rowHeight }}>
                             {renderMatchChip(row.matchStatus, row.matchConfidence)}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.confidence }}>
+                          <TableCell sx={{ width: columnWidths.confidence, height: rowHeight }}>
                             {row.confidence ? `${(row.confidence * 100).toFixed(1)}%` : '—'}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.source }}>
+                          <TableCell sx={{ width: columnWidths.source, height: rowHeight }}>
                             {row.sourceUrl ? (
                               <Tooltip title={row.sourceUrl}>
                                 <Box
@@ -1714,10 +1829,10 @@ export function App() {
                               '—'
                             )}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.whatProduces, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: columnWidths.whatProduces, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.whatProduces}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.website }}>
+                          <TableCell sx={{ width: columnWidths.website, height: rowHeight }}>
                             {row.website !== '—' ? (
                               <Tooltip title={row.website}>
                                 <Box
@@ -1743,13 +1858,13 @@ export function App() {
                               '—'
                             )}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.manufacturerAliases, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: columnWidths.manufacturerAliases, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.manufacturerAliases}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.country, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: columnWidths.country, height: rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.country}
                           </TableCell>
-                          <TableCell align="center" sx={{ width: columnWidths.actions }}>
+                          <TableCell align="center" sx={{ width: columnWidths.actions, height: rowHeight }}>
                             <Tooltip title="Удалить строку">
                               <IconButton
                                 size="small"
@@ -1761,7 +1876,7 @@ export function App() {
                             </Tooltip>
                           </TableCell>
                         </TableRow>
-                      ))}
+                      )})}
                     </TableBody>
                   </Table>
                 </TableContainer>
