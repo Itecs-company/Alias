@@ -770,6 +770,9 @@ export function App() {
   const [rowHeight, setRowHeight] = useState<number>(savedSettings?.rowHeight || 53)
   const [fullscreenMode, setFullscreenMode] = useState<boolean>(savedSettings?.fullscreenMode || false)
   const [fitToScreen, setFitToScreen] = useState<boolean>(savedSettings?.fitToScreen || false)
+  const [tableContainerSize, setTableContainerSize] = useState<{ width: number; height: number }>(
+    savedSettings?.tableContainerSize || { width: 1200, height: 600 }
+  )
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(savedSettings?.columnWidths || {
     checkbox: 50,
     article: 120,
@@ -986,10 +989,11 @@ export function App() {
       rowHeight,
       fullscreenMode,
       fitToScreen,
+      tableContainerSize,
       columnWidths
     }
     window.localStorage.setItem(TABLE_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
-  }, [tableSize, fontSize, rowHeight, fullscreenMode, fitToScreen, columnWidths])
+  }, [tableSize, fontSize, rowHeight, fullscreenMode, fitToScreen, tableContainerSize, columnWidths])
 
   useEffect(() => {
     if (!auth) {
@@ -1765,22 +1769,47 @@ export function App() {
               {filteredTableData.length === 0 ? (
                 <Typography color="text.secondary">Нет данных. Загрузите Excel файл или добавьте товары вручную.</Typography>
               ) : (
-                <TableContainer
-                  component={Paper}
-                  variant="outlined"
+                <Box
                   sx={{
-                    maxHeight: fitToScreen ? 'none' : (fullscreenMode ? 'calc(100vh - 200px)' : 600),
+                    position: 'relative',
+                    width: fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width),
+                    height: fitToScreen ? 'calc(100vh - 350px)' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
+                    resize: !fitToScreen && !fullscreenMode ? 'both' : 'none',
+                    overflow: 'auto',
+                    border: !fitToScreen && !fullscreenMode ? '2px solid' : 'none',
+                    borderColor: 'primary.light',
                     borderRadius: 3,
-                    overflowX: fitToScreen ? 'hidden' : 'auto',
-                    overflowY: fitToScreen ? 'hidden' : 'auto',
-                    '& .MuiTable-root': {
-                      minWidth: fitToScreen ? 'auto' : { xs: 800, md: 'auto' }
-                    },
-                    fontSize: tableFontSize,
-                    transition: 'all 0.3s ease-in-out',
-                    height: fitToScreen ? 'calc(100vh - 350px)' : 'auto'
+                    '&::-webkit-resizer': {
+                      background: 'linear-gradient(135deg, transparent 50%, currentColor 50%)',
+                      color: 'primary.main'
+                    }
+                  }}
+                  onMouseUp={(e) => {
+                    if (!fitToScreen && !fullscreenMode) {
+                      const target = e.currentTarget
+                      setTableContainerSize({
+                        width: target.offsetWidth,
+                        height: target.offsetHeight
+                      })
+                    }
                   }}
                 >
+                  <TableContainer
+                    component={Paper}
+                    variant="outlined"
+                    sx={{
+                      maxHeight: '100%',
+                      height: '100%',
+                      borderRadius: 3,
+                      overflowX: fitToScreen ? 'hidden' : 'auto',
+                      overflowY: fitToScreen ? 'hidden' : 'auto',
+                      '& .MuiTable-root': {
+                        minWidth: fitToScreen ? 'auto' : { xs: 800, md: 'auto' }
+                      },
+                      fontSize: tableFontSize,
+                      transition: 'all 0.3s ease-in-out'
+                    }}
+                  >
                   <Table
                     stickyHeader={!fitToScreen}
                     size={tableSize}
@@ -2008,6 +2037,7 @@ export function App() {
                     </TableBody>
                   </Table>
                 </TableContainer>
+                </Box>
               )}
             </Stack>
           </Paper>
