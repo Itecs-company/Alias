@@ -32,9 +32,10 @@ class SearchLogRecorder:
 
 
 def serialize_payload(data: Any) -> str:
+    """Serialize payload to JSON string without size limit for full logging."""
     try:
         from json import dumps
 
-        return dumps(data, ensure_ascii=False)[:2000]
+        return dumps(data, ensure_ascii=False, indent=2)
     except Exception:  # pragma: no cover - defensive
-        return str(data)[:2000]
+        return str(data)
