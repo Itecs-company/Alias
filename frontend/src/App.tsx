@@ -7,6 +7,7 @@ import {
   Button,
   Checkbox,
   Chip,
+  Collapse,
   Container,
   CssBaseline,
   Divider,
@@ -53,7 +54,10 @@ import {
   Psychology,
   Settings,
   Fullscreen,
-  FullscreenExit
+  FullscreenExit,
+  KeyboardArrowDown,
+  KeyboardArrowUp,
+  ContentCopy
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
@@ -704,6 +708,7 @@ export function App() {
     direction: '',
     q: ''
   })
+  const [expandedLogIds, setExpandedLogIds] = useState<Set<number>>(new Set())
   const tableData = useMemo(() => {
     const sorted = [...history].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -826,6 +831,35 @@ export function App() {
       setSnackbar('Не удалось загрузить логи')
     } finally {
       setLogsLoading(false)
+    }
+  }
+
+  const toggleLogExpansion = (logId: number) => {
+    setExpandedLogIds((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(logId)) {
+        newSet.delete(logId)
+      } else {
+        newSet.add(logId)
+      }
+      return newSet
+    })
+  }
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => setSnackbar('Скопировано в буфер обмена'),
+      () => setSnackbar('Не удалось скопировать')
+    )
+  }
+
+  const formatJSON = (jsonString: string | null | undefined): string => {
+    if (!jsonString) return ''
+    try {
+      const parsed = JSON.parse(jsonString)
+      return JSON.stringify(parsed, null, 2)
+    } catch {
+      return jsonString
     }
   }
 
@@ -2101,6 +2135,7 @@ export function App() {
                   <Table stickyHeader size="small">
                     <TableHead>
                       <TableRow>
+                        <TableCell sx={{ fontWeight: 600, width: 50 }} />
                         <TableCell sx={{ fontWeight: 600 }}>Время</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Провайдер</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Тип</TableCell>
@@ -2112,36 +2147,126 @@ export function App() {
                     <TableBody>
                       {logs.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6}>
+                          <TableCell colSpan={7}>
                             <Typography color="text.secondary">Логи отсутствуют или не соответствуют фильтрам.</Typography>
                           </TableCell>
                         </TableRow>
                       ) : (
-                        logs.map((entry) => (
-                          <TableRow key={entry.id} hover>
-                            <TableCell>{new Date(entry.created_at).toLocaleString()}</TableCell>
-                            <TableCell>{entry.provider}</TableCell>
-                            <TableCell>
-                              <Chip
-                                size="small"
-                                label={entry.direction === 'request' ? 'Запрос' : 'Ответ'}
-                                color={entry.direction === 'request' ? 'default' : 'primary'}
-                                variant="outlined"
-                              />
-                            </TableCell>
-                            <TableCell sx={{ maxWidth: 320 }}>
-                              <Typography variant="body2" noWrap title={entry.query}>
-                                {entry.query}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>{entry.status_code ?? '—'}</TableCell>
-                            <TableCell sx={{ maxWidth: 320 }}>
-                              <Typography variant="body2" noWrap title={entry.payload ?? undefined}>
-                                {entry.payload ?? '—'}
-                              </Typography>
-                            </TableCell>
-                          </TableRow>
-                        ))
+                        logs.map((entry) => {
+                          const isExpanded = expandedLogIds.has(entry.id)
+                          const formattedPayload = formatJSON(entry.payload)
+                          return (
+                            <Fragment key={entry.id}>
+                              <TableRow hover>
+                                <TableCell>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => toggleLogExpansion(entry.id)}
+                                    aria-label="expand row"
+                                  >
+                                    {isExpanded ? <KeyboardArrowUp /> : <KeyboardArrowDown />}
+                                  </IconButton>
+                                </TableCell>
+                                <TableCell>{new Date(entry.created_at).toLocaleString()}</TableCell>
+                                <TableCell>{entry.provider}</TableCell>
+                                <TableCell>
+                                  <Chip
+                                    size="small"
+                                    label={entry.direction === 'request' ? 'Запрос' : 'Ответ'}
+                                    color={entry.direction === 'request' ? 'default' : 'primary'}
+                                    variant="outlined"
+                                  />
+                                </TableCell>
+                                <TableCell sx={{ maxWidth: 320 }}>
+                                  <Typography variant="body2" noWrap title={entry.query}>
+                                    {entry.query}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell>{entry.status_code ?? '—'}</TableCell>
+                                <TableCell sx={{ maxWidth: 320 }}>
+                                  <Typography variant="body2" noWrap title={entry.payload ?? undefined}>
+                                    {entry.payload ?? '—'}
+                                  </Typography>
+                                </TableCell>
+                              </TableRow>
+                              <TableRow>
+                                <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
+                                  <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                                    <Box sx={{ margin: 2, p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
+                                      <Stack spacing={2}>
+                                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                                          <Typography variant="h6" gutterBottom component="div">
+                                            Полная информация
+                                          </Typography>
+                                          <Button
+                                            size="small"
+                                            startIcon={<ContentCopy />}
+                                            onClick={() => copyToClipboard(formattedPayload || entry.query)}
+                                          >
+                                            Копировать
+                                          </Button>
+                                        </Box>
+                                        <Box>
+                                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                            Запрос:
+                                          </Typography>
+                                          <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper' }}>
+                                            <Typography
+                                              variant="body2"
+                                              component="pre"
+                                              sx={{
+                                                fontFamily: 'monospace',
+                                                whiteSpace: 'pre-wrap',
+                                                wordBreak: 'break-word',
+                                                margin: 0
+                                              }}
+                                            >
+                                              {entry.query}
+                                            </Typography>
+                                          </Paper>
+                                        </Box>
+                                        {entry.payload && (
+                                          <Box>
+                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                              Payload {entry.direction === 'response' ? '(Ответ)' : '(Запрос)'}:
+                                            </Typography>
+                                            <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper', maxHeight: 400, overflow: 'auto' }}>
+                                              <Typography
+                                                variant="body2"
+                                                component="pre"
+                                                sx={{
+                                                  fontFamily: 'monospace',
+                                                  whiteSpace: 'pre-wrap',
+                                                  wordBreak: 'break-word',
+                                                  margin: 0,
+                                                  fontSize: '0.85rem'
+                                                }}
+                                              >
+                                                {formattedPayload}
+                                              </Typography>
+                                            </Paper>
+                                          </Box>
+                                        )}
+                                        {entry.status_code && (
+                                          <Box>
+                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                              Статус код:
+                                            </Typography>
+                                            <Chip
+                                              label={entry.status_code}
+                                              color={entry.status_code >= 200 && entry.status_code < 300 ? 'success' : 'error'}
+                                              size="small"
+                                            />
+                                          </Box>
+                                        )}
+                                      </Stack>
+                                    </Box>
+                                  </Collapse>
+                                </TableCell>
+                              </TableRow>
+                            </Fragment>
+                          )
+                        })
                       )}
                     </TableBody>
                   </Table>
