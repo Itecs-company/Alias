@@ -709,6 +709,9 @@ export function App() {
     q: ''
   })
   const [expandedLogIds, setExpandedLogIds] = useState<Set<number>>(new Set())
+  const [autoRefreshLogs, setAutoRefreshLogs] = useState(false)
+  const [refreshInterval, setRefreshInterval] = useState(5000) // 5 seconds default
+  const logsTableRef = useRef<HTMLDivElement>(null)
   const tableData = useMemo(() => {
     const sorted = [...history].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -1050,6 +1053,31 @@ export function App() {
     if (activePage !== 'logs' || !auth) return
     loadLogs()
   }, [activePage, auth, logFilters])
+
+  // Auto-refresh logs
+  useEffect(() => {
+    if (!autoRefreshLogs || activePage !== 'logs' || !auth) return
+
+    const intervalId = setInterval(() => {
+      loadLogs()
+    }, refreshInterval)
+
+    return () => clearInterval(intervalId)
+  }, [autoRefreshLogs, activePage, auth, refreshInterval])
+
+  // Auto-scroll to bottom when logs change
+  useEffect(() => {
+    if (activePage !== 'logs' || logs.length === 0) return
+
+    // Small delay to ensure DOM is updated
+    const timeoutId = setTimeout(() => {
+      if (logsTableRef.current) {
+        logsTableRef.current.scrollTop = logsTableRef.current.scrollHeight
+      }
+    }, 100)
+
+    return () => clearTimeout(timeoutId)
+  }, [logs, activePage])
 
   const handleLoginSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2128,10 +2156,39 @@ export function App() {
                     <Button variant="contained" startIcon={<FilterAlt />} onClick={() => loadLogs()} disabled={logsLoading}>
                       Обновить
                     </Button>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={autoRefreshLogs}
+                          onChange={(e) => setAutoRefreshLogs(e.target.checked)}
+                          size="small"
+                        />
+                      }
+                      label="Авто-обновление"
+                    />
+                    {autoRefreshLogs && (
+                      <TextField
+                        size="small"
+                        label="Интервал (сек)"
+                        type="number"
+                        value={refreshInterval / 1000}
+                        onChange={(e) => {
+                          const seconds = Math.max(1, parseInt(e.target.value) || 5)
+                          setRefreshInterval(seconds * 1000)
+                        }}
+                        sx={{ width: 120 }}
+                        inputProps={{ min: 1, max: 60 }}
+                      />
+                    )}
                   </Stack>
                 </Box>
                 {logsLoading && <LinearProgress />}
-                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 540, borderRadius: 3 }}>
+                <TableContainer
+                  ref={logsTableRef}
+                  component={Paper}
+                  variant="outlined"
+                  sx={{ maxHeight: 540, borderRadius: 3 }}
+                >
                   <Table stickyHeader size="small">
                     <TableHead>
                       <TableRow>

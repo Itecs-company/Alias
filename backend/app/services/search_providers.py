@@ -74,7 +74,11 @@ class SerpAPISearchProvider(SearchProvider):
             "num": max_results,
             "api_key": settings.serpapi_key,
         }
-        await self._log("request", query, payload={"engine": self.engine})
+        await self._log(
+            "request",
+            query,
+            payload={"engine": self.engine, "max_results": max_results, "params": {k: v for k, v in params.items() if k != "api_key"}},
+        )
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             response: httpx.Response | None = None
             for attempt in range(3):
@@ -106,11 +110,22 @@ class SerpAPISearchProvider(SearchProvider):
                 return []
             payload = response.json()
 
+        organic_results = payload.get("organic_results", [])
+        news_results = payload.get("news_results", [])
+        results_used = organic_results if organic_results else news_results
+        top_urls = [r.get("link") or r.get("url") for r in results_used[:3] if r.get("link") or r.get("url")]
+
         await self._log(
             "response",
             query,
             status_code=response.status_code,
-            payload={"results": len(payload.get("organic_results", [])), "engine": self.engine},
+            payload={
+                "results_count": len(results_used),
+                "engine": self.engine,
+                "top_urls": top_urls,
+                "has_organic": bool(organic_results),
+                "has_news": bool(news_results),
+            },
         )
 
         if "organic_results" in payload:
@@ -144,17 +159,23 @@ class OpenAISearchProvider(SearchProvider):
             "return reputable URLs (datasheets, manufacturer pages) containing the manufacturer name. "
             "Respond strictly with a JSON array where each item has 'title', 'url', and optional 'summary' fields."
         )
+        user_message = f"Return JSON: {query}"
         await self._log(
             "request",
             query,
-            payload={"model": self.model, "max_results": max_results},
+            payload={
+                "model": self.model,
+                "max_results": max_results,
+                "temperature": 0,
+                "user_message": user_message[:200],  # Truncate long messages
+            },
         )
 
         completion = await self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Return JSON: {query}"},
+                {"role": "user", "content": user_message},
             ],
             temperature=0,
             max_tokens=500,
@@ -181,11 +202,18 @@ class OpenAISearchProvider(SearchProvider):
             url = item.get("url") or item.get("link")
             if url:
                 results.append({"title": item.get("title", url), "link": url, "snippet": item.get("summary")})
+
+        top_urls = [r["link"] for r in results[:3]]
         await self._log(
             "response",
             query,
             status_code=200,
-            payload={"results": len(results), "model": self.model},
+            payload={
+                "results_count": len(results),
+                "model": self.model,
+                "top_urls": top_urls,
+                "response_length": len(output) if isinstance(output, str) else 0,
+            },
         )
         return results[:max_results]
 
@@ -235,7 +263,15 @@ class GoogleCustomSearchProvider(SearchProvider):
             return []
 
         params = {"key": self.api_key, "cx": self.cx, "q": query, "num": max_results}
-        await self._log("request", query, payload={"cx": self.cx})
+        await self._log(
+            "request",
+            query,
+            payload={
+                "cx": self.cx,
+                "max_results": max_results,
+                "params": {k: v for k, v in params.items() if k != "key"},
+            },
+        )
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             async with self._rate_limit:
                 response: httpx.Response | None = None
@@ -274,13 +310,6 @@ class GoogleCustomSearchProvider(SearchProvider):
                     return []
                 payload = response.json()
 
-        await self._log(
-            "response",
-            query,
-            status_code=response.status_code,
-            payload={"results": len(payload.get("items", []))},
-        )
-
         items = payload.get("items", [])
         results: list[dict[str, Any]] = []
         for item in items:
@@ -293,6 +322,19 @@ class GoogleCustomSearchProvider(SearchProvider):
                         "snippet": item.get("snippet"),
                     }
                 )
+
+        top_urls = [r["link"] for r in results[:3]]
+        await self._log(
+            "response",
+            query,
+            status_code=response.status_code,
+            payload={
+                "results_count": len(results),
+                "top_urls": top_urls,
+                "total_items": len(items),
+            },
+        )
+
         return results[:max_results]
 
 
@@ -317,7 +359,11 @@ class GoogleWebSearchProvider(SearchProvider):
             "num": str(max_results * 2),  # fetch a few extras so we can filter redirects
             "hl": "en",
         }
-        await self._log("request", query)
+        await self._log(
+            "request",
+            query,
+            payload={"max_results": max_results, "params": params, "user_agent": self.headers["User-Agent"][:50]},
+        )
         async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
             async with self._rate_limit:
                 response: httpx.Response | None = None
@@ -368,11 +414,17 @@ class GoogleWebSearchProvider(SearchProvider):
             results.append({"title": title_tag.get_text(strip=True), "link": href, "snippet": snippet})
             if len(results) >= max_results:
                 break
+
+        top_urls = [r["link"] for r in results[:3]]
         await self._log(
             "response",
             query,
             status_code=response.status_code,
-            payload={"results": len(results)},
+            payload={
+                "results_count": len(results),
+                "top_urls": top_urls,
+                "parsed_blocks": len(soup.select("div.g")),
+            },
         )
         return results
 
