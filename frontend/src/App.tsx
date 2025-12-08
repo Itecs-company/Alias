@@ -7,6 +7,7 @@ import {
   Button,
   Checkbox,
   Chip,
+  Collapse,
   Container,
   CssBaseline,
   Divider,
@@ -51,7 +52,12 @@ import {
   ListAlt,
   FilterAlt,
   Psychology,
-  Settings
+  Settings,
+  Fullscreen,
+  FullscreenExit,
+  KeyboardArrowDown,
+  KeyboardArrowUp,
+  ContentCopy
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
@@ -142,6 +148,7 @@ const matchStatusColor: Record<Exclude<MatchStatus, null>, 'success' | 'error' |
 type AuthState = { token: string; username: string; role: 'admin' | 'user' }
 const AUTH_STORAGE_KEY = 'aliasfinder:auth'
 const THEME_STORAGE_KEY = 'aliasfinder:theme'
+const TABLE_SETTINGS_STORAGE_KEY = 'aliasfinder:table-settings'
 
 const twinkle = keyframes`
   0% { opacity: 0.25; transform: translateY(0px) scale(0.9); }
@@ -266,8 +273,127 @@ const ResizableCell = ({
   )
 }
 
+const RowHeightResizer = ({
+  onResize
+}: {
+  onResize: (height: number) => void
+}) => {
+  const [isResizing, setIsResizing] = useState(false)
+  const [startY, setStartY] = useState(0)
+  const [startHeight, setStartHeight] = useState(0)
+
+  const handleMouseDown = (e: React.MouseEvent, currentHeight: number) => {
+    setIsResizing(true)
+    setStartY(e.clientY)
+    setStartHeight(currentHeight)
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const diff = e.clientY - startY
+      const newHeight = Math.max(30, startHeight + diff)
+      onResize(newHeight)
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing, startY, startHeight, onResize])
+
+  return {
+    isResizing,
+    handleMouseDown
+  }
+}
+
+const Santa = () => {
+  return (
+    <>
+      {/* Большой Санта справа внизу */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 40,
+          right: 40,
+          fontSize: '140px',
+          zIndex: 5,
+          animation: `${drift} 5s ease-in-out infinite`,
+          filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.4))',
+          transform: 'rotate(-8deg)'
+        }}
+      >
+        🎅
+      </Box>
+      {/* Маленькие Санты по экрану */}
+      <Box
+        sx={{
+          position: 'absolute',
+          top: '15%',
+          left: '10%',
+          fontSize: '60px',
+          zIndex: 5,
+          animation: `${twinkle} 3s ease-in-out infinite`,
+        }}
+      >
+        🎅
+      </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          top: '25%',
+          right: '15%',
+          fontSize: '50px',
+          zIndex: 5,
+          animation: `${drift} 4s ease-in-out infinite`,
+          animationDelay: '1s'
+        }}
+      >
+        🤶
+      </Box>
+      {/* Эльфы */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: '20%',
+          left: '20%',
+          fontSize: '45px',
+          zIndex: 5,
+          animation: `${bounce} 2s ease-in-out infinite`,
+        }}
+      >
+        🧝
+      </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: '15%',
+          left: '30%',
+          fontSize: '40px',
+          zIndex: 5,
+          animation: `${bounce} 2.5s ease-in-out infinite`,
+          animationDelay: '0.5s'
+        }}
+      >
+        🧝‍♀️
+      </Box>
+    </>
+  )
+}
+
 const HolidayLights = () => {
-  const palette = ['#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ff6b9a', '#00d4aa']
+  const palette = ['#ff0000', '#00ff00', '#ffeb3b', '#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ff6b9a', '#00d4aa']
   return (
     <Box
       sx={{
@@ -277,16 +403,17 @@ const HolidayLights = () => {
         pointerEvents: 'none',
         zIndex: 0,
         background: `
-          radial-gradient(ellipse at 20% 0%, rgba(100, 200, 255, 0.3), transparent 40%),
-          radial-gradient(ellipse at 80% 0%, rgba(200, 150, 255, 0.25), transparent 35%),
-          radial-gradient(ellipse at 50% 0%, rgba(150, 220, 255, 0.2), transparent 50%),
+          radial-gradient(ellipse at 20% 0%, rgba(100, 200, 255, 0.4), transparent 40%),
+          radial-gradient(ellipse at 80% 0%, rgba(200, 150, 255, 0.35), transparent 35%),
+          radial-gradient(ellipse at 50% 0%, rgba(150, 220, 255, 0.3), transparent 50%),
           linear-gradient(180deg,
-            #1a2a4a 0%,
-            #2d4a7c 15%,
-            #4a7ba7 30%,
-            #87b3d4 50%,
-            #b8d8f0 70%,
-            #e5f2fa 85%,
+            #0f1f3f 0%,
+            #1a2a4a 10%,
+            #2d4a7c 20%,
+            #4a7ba7 35%,
+            #87b3d4 55%,
+            #b8d8f0 75%,
+            #e5f2fa 88%,
             #ffffff 100%
           )
         `
@@ -330,17 +457,18 @@ const HolidayLights = () => {
         />
       ))}
       {/* Падающий снег */}
-      {Array.from({ length: 50 }).map((_, i) => (
+      {Array.from({ length: 80 }).map((_, i) => (
         <Box
           key={`snow-${i}`}
           sx={{
             position: 'absolute',
             top: '-10vh',
             left: `${Math.random() * 100}%`,
-            fontSize: `${Math.random() * 10 + 10}px`,
-            animation: `${snowfall} ${Math.random() * 10 + 15}s linear infinite`,
+            fontSize: `${Math.random() * 12 + 12}px`,
+            animation: `${snowfall} ${Math.random() * 10 + 12}s linear infinite`,
             animationDelay: `${Math.random() * 10}s`,
-            opacity: 0.8
+            opacity: 0.9,
+            filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.8))'
           }}
         >
           ❄
@@ -361,17 +489,17 @@ const HolidayLights = () => {
           animation: `${garlandSwing} 6s ease-in-out infinite`
         }}
       >
-        {Array.from({ length: 35 }).map((_, index) => (
+        {Array.from({ length: 50 }).map((_, index) => (
           <Box
             key={`top-${index}`}
             sx={{
-              width: 14,
-              height: 14,
+              width: 16,
+              height: 16,
               borderRadius: '50%',
               background: palette[index % palette.length],
-              boxShadow: `0 0 15px ${palette[index % palette.length]}`,
-              animation: `${twinkle} 2.6s ease-in-out infinite`,
-              animationDelay: `${index * 70}ms`
+              boxShadow: `0 0 20px 3px ${palette[index % palette.length]}`,
+              animation: `${twinkle} 2.2s ease-in-out infinite`,
+              animationDelay: `${index * 50}ms`
             }}
           />
         ))}
@@ -391,17 +519,17 @@ const HolidayLights = () => {
           animation: `${garlandSwing} 7s ease-in-out infinite`
         }}
       >
-        {Array.from({ length: 35 }).map((_, index) => (
+        {Array.from({ length: 50 }).map((_, index) => (
           <Box
             key={`bottom-${index}`}
             sx={{
-              width: 14,
-              height: 14,
+              width: 16,
+              height: 16,
               borderRadius: '50%',
               background: palette[(index + 3) % palette.length],
-              boxShadow: `0 0 15px ${palette[(index + 3) % palette.length]}`,
-              animation: `${twinkle} 2.8s ease-in-out infinite`,
-              animationDelay: `${index * 80}ms`
+              boxShadow: `0 0 20px 3px ${palette[(index + 3) % palette.length]}`,
+              animation: `${twinkle} 2.4s ease-in-out infinite`,
+              animationDelay: `${index * 60}ms`
             }}
           />
         ))}
@@ -533,6 +661,17 @@ const HolidayLights = () => {
           animation: `${glowwave} 8s ease-in-out infinite`
         }}
       />
+
+      {/* Санта Клаус и его команда */}
+      <Santa />
+
+      {/* Больше праздничных элементов */}
+      <Box sx={{ position: 'absolute', top: '10%', left: '5%', fontSize: '50px', animation: `${twinkle} 3s ease-in-out infinite` }}>🎁</Box>
+      <Box sx={{ position: 'absolute', top: '40%', right: '8%', fontSize: '45px', animation: `${float} 4.5s ease-in-out infinite` }}>🎁</Box>
+      <Box sx={{ position: 'absolute', bottom: '30%', left: '50%', fontSize: '38px', animation: `${bounce} 3s ease-in-out infinite` }}>🔔</Box>
+      <Box sx={{ position: 'absolute', top: '30%', left: '70%', fontSize: '42px', animation: `${drift} 5s ease-in-out infinite` }}>🕯️</Box>
+      <Box sx={{ position: 'absolute', top: '50%', left: '15%', fontSize: '40px', animation: `${twinkle} 4s ease-in-out infinite`, animationDelay: '1s' }}>🎄</Box>
+      <Box sx={{ position: 'absolute', bottom: '40%', right: '25%', fontSize: '48px', animation: `${float} 6s ease-in-out infinite`, animationDelay: '0.5s' }}>☃️</Box>
     </Box>
   )
 }
@@ -569,6 +708,10 @@ export function App() {
     direction: '',
     q: ''
   })
+  const [expandedLogIds, setExpandedLogIds] = useState<Set<number>>(new Set())
+  const [autoRefreshLogs, setAutoRefreshLogs] = useState(false)
+  const [refreshInterval, setRefreshInterval] = useState(5000) // 5 seconds default
+  const logsTableRef = useRef<HTMLDivElement>(null)
   const tableData = useMemo(() => {
     const sorted = [...history].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -620,9 +763,25 @@ export function App() {
     { status: 'idle' }
   )
   const [uploadedItems, setUploadedItems] = useState<PartRequestItem[]>([])
-  const [tableSize, setTableSize] = useState<'small' | 'medium'>('small')
-  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium')
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+
+  // Load table settings from localStorage
+  const loadTableSettings = () => {
+    if (typeof window === 'undefined') return null
+    const stored = window.localStorage.getItem(TABLE_SETTINGS_STORAGE_KEY)
+    return stored ? JSON.parse(stored) : null
+  }
+
+  const savedSettings = loadTableSettings()
+
+  const [tableSize, setTableSize] = useState<'small' | 'medium'>(savedSettings?.tableSize || 'small')
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(savedSettings?.fontSize || 'medium')
+  const [rowHeight, setRowHeight] = useState<number>(savedSettings?.rowHeight || 53)
+  const [fullscreenMode, setFullscreenMode] = useState<boolean>(savedSettings?.fullscreenMode || false)
+  const [fitToScreen, setFitToScreen] = useState<boolean>(savedSettings?.fitToScreen || false)
+  const [tableContainerSize, setTableContainerSize] = useState<{ width: number; height: number }>(
+    savedSettings?.tableContainerSize || { width: 1200, height: 600 }
+  )
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(savedSettings?.columnWidths || {
     checkbox: 50,
     article: 120,
     manufacturer: 150,
@@ -675,6 +834,35 @@ export function App() {
       setSnackbar('Не удалось загрузить логи')
     } finally {
       setLogsLoading(false)
+    }
+  }
+
+  const toggleLogExpansion = (logId: number) => {
+    setExpandedLogIds((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(logId)) {
+        newSet.delete(logId)
+      } else {
+        newSet.add(logId)
+      }
+      return newSet
+    })
+  }
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => setSnackbar('Скопировано в буфер обмена'),
+      () => setSnackbar('Не удалось скопировать')
+    )
+  }
+
+  const formatJSON = (jsonString: string | null | undefined): string => {
+    if (!jsonString) return ''
+    try {
+      const parsed = JSON.parse(jsonString)
+      return JSON.stringify(parsed, null, 2)
+    } catch {
+      return jsonString
     }
   }
 
@@ -831,6 +1019,20 @@ export function App() {
   }, [themeMode])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    const settings = {
+      tableSize,
+      fontSize,
+      rowHeight,
+      fullscreenMode,
+      fitToScreen,
+      tableContainerSize,
+      columnWidths
+    }
+    window.localStorage.setItem(TABLE_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+  }, [tableSize, fontSize, rowHeight, fullscreenMode, fitToScreen, tableContainerSize, columnWidths])
+
+  useEffect(() => {
     if (!auth) {
       setAuthToken(null)
       return
@@ -851,6 +1053,31 @@ export function App() {
     if (activePage !== 'logs' || !auth) return
     loadLogs()
   }, [activePage, auth, logFilters])
+
+  // Auto-refresh logs
+  useEffect(() => {
+    if (!autoRefreshLogs || activePage !== 'logs' || !auth) return
+
+    const intervalId = setInterval(() => {
+      loadLogs()
+    }, refreshInterval)
+
+    return () => clearInterval(intervalId)
+  }, [autoRefreshLogs, activePage, auth, refreshInterval])
+
+  // Auto-scroll to bottom when logs change
+  useEffect(() => {
+    if (activePage !== 'logs' || logs.length === 0) return
+
+    // Small delay to ensure DOM is updated
+    const timeoutId = setTimeout(() => {
+      if (logsTableRef.current) {
+        logsTableRef.current.scrollTop = logsTableRef.current.scrollHeight
+      }
+    }, 100)
+
+    return () => clearTimeout(timeoutId)
+  }, [logs, activePage])
 
   const handleLoginSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1060,6 +1287,12 @@ export function App() {
       [column]: Math.max(80, width)
     }))
   }, [])
+
+  const handleRowHeightResize = useCallback((height: number) => {
+    setRowHeight(height)
+  }, [])
+
+  const rowResizer = RowHeightResizer({ onResize: handleRowHeightResize })
 
   const handleExport = async (type: 'pdf' | 'excel') => {
     try {
@@ -1481,6 +1714,27 @@ export function App() {
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                  <Tooltip title={fullscreenMode ? "Выйти из полноэкранного режима" : "Полноэкранный режим"}>
+                    <IconButton
+                      size="small"
+                      color={fullscreenMode ? "primary" : "default"}
+                      onClick={() => setFullscreenMode(!fullscreenMode)}
+                      sx={{ border: '1px solid', borderColor: 'divider' }}
+                    >
+                      {fullscreenMode ? <FullscreenExit /> : <Fullscreen />}
+                    </IconButton>
+                  </Tooltip>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={fitToScreen}
+                        onChange={(e) => setFitToScreen(e.target.checked)}
+                        size="small"
+                      />
+                    }
+                    label="Подогнать под экран"
+                    sx={{ ml: 1 }}
+                  />
                   <ToggleButtonGroup
                     size="small"
                     exclusive
@@ -1577,32 +1831,68 @@ export function App() {
               {filteredTableData.length === 0 ? (
                 <Typography color="text.secondary">Нет данных. Загрузите Excel файл или добавьте товары вручную.</Typography>
               ) : (
-                <TableContainer
-                  component={Paper}
-                  variant="outlined"
+                <Box
                   sx={{
-                    maxHeight: 600,
+                    position: 'relative',
+                    width: fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width),
+                    height: fitToScreen ? 'calc(100vh - 350px)' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
+                    resize: !fitToScreen && !fullscreenMode ? 'both' : 'none',
+                    overflow: 'auto',
+                    border: !fitToScreen && !fullscreenMode ? '2px solid' : 'none',
+                    borderColor: 'primary.light',
                     borderRadius: 3,
-                    overflowX: 'auto',
-                    '& .MuiTable-root': {
-                      minWidth: { xs: 800, md: 'auto' }
-                    },
-                    fontSize: tableFontSize
+                    '&::-webkit-resizer': {
+                      background: 'linear-gradient(135deg, transparent 50%, currentColor 50%)',
+                      color: 'primary.main'
+                    }
+                  }}
+                  onMouseUp={(e) => {
+                    if (!fitToScreen && !fullscreenMode) {
+                      const target = e.currentTarget
+                      setTableContainerSize({
+                        width: target.offsetWidth,
+                        height: target.offsetHeight
+                      })
+                    }
                   }}
                 >
+                  <TableContainer
+                    component={Paper}
+                    variant="outlined"
+                    sx={{
+                      maxHeight: '100%',
+                      height: '100%',
+                      borderRadius: 3,
+                      overflowX: fitToScreen ? 'hidden' : 'auto',
+                      overflowY: fitToScreen ? 'hidden' : 'auto',
+                      '& .MuiTable-root': {
+                        minWidth: fitToScreen ? 'auto' : { xs: 800, md: 'auto' }
+                      },
+                      fontSize: tableFontSize,
+                      transition: 'all 0.3s ease-in-out'
+                    }}
+                  >
                   <Table
-                    stickyHeader
+                    stickyHeader={!fitToScreen}
                     size={tableSize}
                     sx={{
-                      tableLayout: 'fixed',
+                      tableLayout: fitToScreen ? 'auto' : 'fixed',
+                      width: fitToScreen ? '100%' : 'auto',
+                      height: fitToScreen ? '100%' : 'auto',
                       '& .MuiTableCell-root': {
-                        fontSize: tableFontSize
+                        fontSize: tableFontSize,
+                        ...(fitToScreen && {
+                          padding: '4px 8px',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        })
                       }
                     }}
                   >
                     <TableHead>
                       <TableRow>
-                        <TableCell padding="checkbox" sx={{ width: columnWidths.checkbox }}>
+                        <TableCell padding="checkbox" sx={{ width: fitToScreen ? 'auto' : columnWidths.checkbox }}>
                           <Checkbox
                             checked={selectedIds.size === filteredTableData.length && filteredTableData.length > 0}
                             indeterminate={selectedIds.size > 0 && selectedIds.size < filteredTableData.length}
@@ -1610,49 +1900,75 @@ export function App() {
                           />
                         </TableCell>
                         {/* Известные данные */}
-                        <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize}>
-                          Article
-                        </ResizableCell>
-                        <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
-                          Submitted
-                        </ResizableCell>
-                        {/* Данные от поиска */}
-                        <ResizableCell column="manufacturer" width={columnWidths.manufacturer} onResize={handleColumnResize}>
-                          Manufacturer
-                        </ResizableCell>
-                        <ResizableCell column="alias" width={columnWidths.alias} onResize={handleColumnResize}>
-                          Alias
-                        </ResizableCell>
-                        <ResizableCell column="match" width={columnWidths.match} onResize={handleColumnResize}>
-                          Match
-                        </ResizableCell>
-                        <ResizableCell column="confidence" width={columnWidths.confidence} onResize={handleColumnResize}>
-                          Confidence
-                        </ResizableCell>
-                        <ResizableCell column="source" width={columnWidths.source} onResize={handleColumnResize}>
-                          Source
-                        </ResizableCell>
-                        <ResizableCell column="whatProduces" width={columnWidths.whatProduces} onResize={handleColumnResize}>
-                          Что производит
-                        </ResizableCell>
-                        <ResizableCell column="website" width={columnWidths.website} onResize={handleColumnResize}>
-                          Сайт производителя
-                        </ResizableCell>
-                        <ResizableCell column="manufacturerAliases" width={columnWidths.manufacturerAliases} onResize={handleColumnResize}>
-                          Алиасы
-                        </ResizableCell>
-                        <ResizableCell column="country" width={columnWidths.country} onResize={handleColumnResize}>
-                          Страна
-                        </ResizableCell>
-                        <ResizableCell column="actions" width={columnWidths.actions} onResize={handleColumnResize}>
-                          <Box textAlign="center">Действия</Box>
-                        </ResizableCell>
+                        {fitToScreen ? (
+                          <>
+                            <TableCell sx={{ fontWeight: 600 }}>Article</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Req.Mnfc</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Manufacturer</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Alias</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Match</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Confidence</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Source</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Что производит</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Сайт производителя</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Алиасы</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Страна</TableCell>
+                            <TableCell sx={{ fontWeight: 600, textAlign: 'center' }}>Действия</TableCell>
+                          </>
+                        ) : (
+                          <>
+                            <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize}>
+                              Article
+                            </ResizableCell>
+                            <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
+                              Req.Mnfc
+                            </ResizableCell>
+                            <ResizableCell column="manufacturer" width={columnWidths.manufacturer} onResize={handleColumnResize}>
+                              Manufacturer
+                            </ResizableCell>
+                            <ResizableCell column="alias" width={columnWidths.alias} onResize={handleColumnResize}>
+                              Alias
+                            </ResizableCell>
+                            <ResizableCell column="match" width={columnWidths.match} onResize={handleColumnResize}>
+                              Match
+                            </ResizableCell>
+                            <ResizableCell column="confidence" width={columnWidths.confidence} onResize={handleColumnResize}>
+                              Confidence
+                            </ResizableCell>
+                            <ResizableCell column="source" width={columnWidths.source} onResize={handleColumnResize}>
+                              Source
+                            </ResizableCell>
+                            <ResizableCell column="whatProduces" width={columnWidths.whatProduces} onResize={handleColumnResize}>
+                              Что производит
+                            </ResizableCell>
+                            <ResizableCell column="website" width={columnWidths.website} onResize={handleColumnResize}>
+                              Сайт производителя
+                            </ResizableCell>
+                            <ResizableCell column="manufacturerAliases" width={columnWidths.manufacturerAliases} onResize={handleColumnResize}>
+                              Алиасы
+                            </ResizableCell>
+                            <ResizableCell column="country" width={columnWidths.country} onResize={handleColumnResize}>
+                              Страна
+                            </ResizableCell>
+                            <ResizableCell column="actions" width={columnWidths.actions} onResize={handleColumnResize}>
+                              <Box textAlign="center">Действия</Box>
+                            </ResizableCell>
+                          </>
+                        )}
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {filteredTableData.map((row) => (
-                        <TableRow key={row.key} hover>
-                          <TableCell padding="checkbox" sx={{ width: columnWidths.checkbox }}>
+                      {filteredTableData.map((row, rowIndex) => (
+                        <TableRow key={row.key} hover sx={{ height: fitToScreen ? 'auto' : rowHeight }}>
+                          <TableCell
+                            padding="checkbox"
+                            sx={{
+                              width: fitToScreen ? 'auto' : columnWidths.checkbox,
+                              height: fitToScreen ? 'auto' : rowHeight,
+                              position: 'relative',
+                              userSelect: rowResizer.isResizing ? 'none' : 'auto'
+                            }}
+                          >
                             <Checkbox
                               checked={selectedIds.has(row.id)}
                               onChange={(e) => {
@@ -1667,28 +1983,46 @@ export function App() {
                                 })
                               }}
                             />
+                            {!fitToScreen && rowIndex === 0 && (
+                              <Box
+                                onMouseDown={(e) => rowResizer.handleMouseDown(e, rowHeight)}
+                                sx={{
+                                  position: 'absolute',
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  height: 5,
+                                  cursor: 'row-resize',
+                                  backgroundColor: rowResizer.isResizing ? 'primary.main' : 'transparent',
+                                  '&:hover': {
+                                    backgroundColor: 'primary.light'
+                                  },
+                                  zIndex: 1
+                                }}
+                              />
+                            )}
                           </TableCell>
                           {/* Известные данные */}
-                          <TableCell sx={{ width: columnWidths.article, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.article, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.article}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.submitted, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.submitted, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.submitted}
                           </TableCell>
                           {/* Данные от поиска */}
-                          <TableCell sx={{ width: columnWidths.manufacturer, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturer, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.manufacturer}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.alias, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.alias, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.alias}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.match }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.match, height: fitToScreen ? 'auto' : rowHeight }}>
                             {renderMatchChip(row.matchStatus, row.matchConfidence)}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.confidence }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.confidence, height: fitToScreen ? 'auto' : rowHeight }}>
                             {row.confidence ? `${(row.confidence * 100).toFixed(1)}%` : '—'}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.source }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.source, height: fitToScreen ? 'auto' : rowHeight }}>
                             {row.sourceUrl ? (
                               <Tooltip title={row.sourceUrl}>
                                 <Box
@@ -1714,10 +2048,10 @@ export function App() {
                               '—'
                             )}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.whatProduces, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.whatProduces, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.whatProduces}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.website }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.website, height: fitToScreen ? 'auto' : rowHeight }}>
                             {row.website !== '—' ? (
                               <Tooltip title={row.website}>
                                 <Box
@@ -1730,7 +2064,7 @@ export function App() {
                                     textDecoration: 'none',
                                     '&:hover': { textDecoration: 'underline' },
                                     display: 'block',
-                                    maxWidth: 150,
+                                    maxWidth: fitToScreen ? 'none' : 150,
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
                                     whiteSpace: 'nowrap'
@@ -1743,13 +2077,13 @@ export function App() {
                               '—'
                             )}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.manufacturerAliases, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturerAliases, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.manufacturerAliases}
                           </TableCell>
-                          <TableCell sx={{ width: columnWidths.country, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.country, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.country}
                           </TableCell>
-                          <TableCell align="center" sx={{ width: columnWidths.actions }}>
+                          <TableCell align="center" sx={{ width: fitToScreen ? 'auto' : columnWidths.actions, height: fitToScreen ? 'auto' : rowHeight }}>
                             <Tooltip title="Удалить строку">
                               <IconButton
                                 size="small"
@@ -1765,6 +2099,7 @@ export function App() {
                     </TableBody>
                   </Table>
                 </TableContainer>
+                </Box>
               )}
             </Stack>
           </Paper>
@@ -1821,13 +2156,43 @@ export function App() {
                     <Button variant="contained" startIcon={<FilterAlt />} onClick={() => loadLogs()} disabled={logsLoading}>
                       Обновить
                     </Button>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={autoRefreshLogs}
+                          onChange={(e) => setAutoRefreshLogs(e.target.checked)}
+                          size="small"
+                        />
+                      }
+                      label="Авто-обновление"
+                    />
+                    {autoRefreshLogs && (
+                      <TextField
+                        size="small"
+                        label="Интервал (сек)"
+                        type="number"
+                        value={refreshInterval / 1000}
+                        onChange={(e) => {
+                          const seconds = Math.max(1, parseInt(e.target.value) || 5)
+                          setRefreshInterval(seconds * 1000)
+                        }}
+                        sx={{ width: 120 }}
+                        inputProps={{ min: 1, max: 60 }}
+                      />
+                    )}
                   </Stack>
                 </Box>
                 {logsLoading && <LinearProgress />}
-                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 540, borderRadius: 3 }}>
+                <TableContainer
+                  ref={logsTableRef}
+                  component={Paper}
+                  variant="outlined"
+                  sx={{ maxHeight: 540, borderRadius: 3 }}
+                >
                   <Table stickyHeader size="small">
                     <TableHead>
                       <TableRow>
+                        <TableCell sx={{ fontWeight: 600, width: 50 }} />
                         <TableCell sx={{ fontWeight: 600 }}>Время</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Провайдер</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Тип</TableCell>
@@ -1839,36 +2204,126 @@ export function App() {
                     <TableBody>
                       {logs.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6}>
+                          <TableCell colSpan={7}>
                             <Typography color="text.secondary">Логи отсутствуют или не соответствуют фильтрам.</Typography>
                           </TableCell>
                         </TableRow>
                       ) : (
-                        logs.map((entry) => (
-                          <TableRow key={entry.id} hover>
-                            <TableCell>{new Date(entry.created_at).toLocaleString()}</TableCell>
-                            <TableCell>{entry.provider}</TableCell>
-                            <TableCell>
-                              <Chip
-                                size="small"
-                                label={entry.direction === 'request' ? 'Запрос' : 'Ответ'}
-                                color={entry.direction === 'request' ? 'default' : 'primary'}
-                                variant="outlined"
-                              />
-                            </TableCell>
-                            <TableCell sx={{ maxWidth: 320 }}>
-                              <Typography variant="body2" noWrap title={entry.query}>
-                                {entry.query}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>{entry.status_code ?? '—'}</TableCell>
-                            <TableCell sx={{ maxWidth: 320 }}>
-                              <Typography variant="body2" noWrap title={entry.payload ?? undefined}>
-                                {entry.payload ?? '—'}
-                              </Typography>
-                            </TableCell>
-                          </TableRow>
-                        ))
+                        logs.map((entry) => {
+                          const isExpanded = expandedLogIds.has(entry.id)
+                          const formattedPayload = formatJSON(entry.payload)
+                          return (
+                            <Fragment key={entry.id}>
+                              <TableRow hover>
+                                <TableCell>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => toggleLogExpansion(entry.id)}
+                                    aria-label="expand row"
+                                  >
+                                    {isExpanded ? <KeyboardArrowUp /> : <KeyboardArrowDown />}
+                                  </IconButton>
+                                </TableCell>
+                                <TableCell>{new Date(entry.created_at).toLocaleString()}</TableCell>
+                                <TableCell>{entry.provider}</TableCell>
+                                <TableCell>
+                                  <Chip
+                                    size="small"
+                                    label={entry.direction === 'request' ? 'Запрос' : 'Ответ'}
+                                    color={entry.direction === 'request' ? 'default' : 'primary'}
+                                    variant="outlined"
+                                  />
+                                </TableCell>
+                                <TableCell sx={{ maxWidth: 320 }}>
+                                  <Typography variant="body2" noWrap title={entry.query}>
+                                    {entry.query}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell>{entry.status_code ?? '—'}</TableCell>
+                                <TableCell sx={{ maxWidth: 320 }}>
+                                  <Typography variant="body2" noWrap title={entry.payload ?? undefined}>
+                                    {entry.payload ?? '—'}
+                                  </Typography>
+                                </TableCell>
+                              </TableRow>
+                              <TableRow>
+                                <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
+                                  <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                                    <Box sx={{ margin: 2, p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
+                                      <Stack spacing={2}>
+                                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                                          <Typography variant="h6" gutterBottom component="div">
+                                            Полная информация
+                                          </Typography>
+                                          <Button
+                                            size="small"
+                                            startIcon={<ContentCopy />}
+                                            onClick={() => copyToClipboard(formattedPayload || entry.query)}
+                                          >
+                                            Копировать
+                                          </Button>
+                                        </Box>
+                                        <Box>
+                                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                            Запрос:
+                                          </Typography>
+                                          <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper' }}>
+                                            <Typography
+                                              variant="body2"
+                                              component="pre"
+                                              sx={{
+                                                fontFamily: 'monospace',
+                                                whiteSpace: 'pre-wrap',
+                                                wordBreak: 'break-word',
+                                                margin: 0
+                                              }}
+                                            >
+                                              {entry.query}
+                                            </Typography>
+                                          </Paper>
+                                        </Box>
+                                        {entry.payload && (
+                                          <Box>
+                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                              Payload {entry.direction === 'response' ? '(Ответ)' : '(Запрос)'}:
+                                            </Typography>
+                                            <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper', maxHeight: 400, overflow: 'auto' }}>
+                                              <Typography
+                                                variant="body2"
+                                                component="pre"
+                                                sx={{
+                                                  fontFamily: 'monospace',
+                                                  whiteSpace: 'pre-wrap',
+                                                  wordBreak: 'break-word',
+                                                  margin: 0,
+                                                  fontSize: '0.85rem'
+                                                }}
+                                              >
+                                                {formattedPayload}
+                                              </Typography>
+                                            </Paper>
+                                          </Box>
+                                        )}
+                                        {entry.status_code && (
+                                          <Box>
+                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                              Статус код:
+                                            </Typography>
+                                            <Chip
+                                              label={entry.status_code}
+                                              color={entry.status_code >= 200 && entry.status_code < 300 ? 'success' : 'error'}
+                                              size="small"
+                                            />
+                                          </Box>
+                                        )}
+                                      </Stack>
+                                    </Box>
+                                  </Collapse>
+                                </TableCell>
+                              </TableRow>
+                            </Fragment>
+                          )
+                        })
                       )}
                     </TableBody>
                   </Table>

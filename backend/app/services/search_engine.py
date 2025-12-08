@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import Counter
 from dataclasses import dataclass
 from typing import List
 from urllib.parse import urlparse
 
+import httpx
 from loguru import logger
+from openai import AsyncOpenAI
 from rapidfuzz import fuzz, process
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
+from app.core.http import httpx_client_kwargs
 from app.models.part import Manufacturer, ManufacturerAlias, Part
 from app.schemas.part import PartBase, SearchResult, StageStatus
 
@@ -23,6 +28,88 @@ from .search_providers import (
     get_fallback_provider,
     get_google_provider,
 )
+
+settings = get_settings()
+
+
+@dataclass
+class ManufacturerInfo:
+    """Дополнительная информация о производителе"""
+    what_produces: str | None = None
+    website: str | None = None
+    manufacturer_aliases: str | None = None
+    country: str | None = None
+
+
+class ManufacturerInfoExtractor:
+    """Извлечение дополнительной информации о производителе через OpenAI"""
+
+    def __init__(self):
+        if settings.openai_api_key:
+            http_client = httpx.AsyncClient(**httpx_client_kwargs())
+            self.client = AsyncOpenAI(api_key=settings.openai_api_key, http_client=http_client)
+            self.model = settings.openai_model_default
+        else:
+            self.client = None
+            logger.warning("OpenAI API key is missing. Manufacturer info extraction disabled.")
+
+    async def extract_info(self, manufacturer_name: str) -> ManufacturerInfo:
+        """Извлекает информацию о производителе"""
+        if not self.client:
+            return ManufacturerInfo()
+
+        try:
+            system_prompt = (
+                "You are an electronics industry expert. Given a manufacturer name, "
+                "provide structured information about them. "
+                "Respond ONLY with valid JSON in this exact format: "
+                '{"what_produces": "brief description of what they produce", '
+                '"website": "official website URL", '
+                '"aliases": "comma-separated alternative names/brands", '
+                '"country": "country of origin"}. '
+                "Keep descriptions concise (under 100 chars). If information is unknown, use null."
+            )
+
+            user_prompt = f"Provide information about manufacturer: {manufacturer_name}"
+
+            completion = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0,
+                max_tokens=300,
+            )
+
+            if not completion.choices[0].message:
+                return ManufacturerInfo()
+
+            output = completion.choices[0].message.content
+            if not output:
+                return ManufacturerInfo()
+
+            # Извлекаем JSON из ответа (может быть обернут в markdown)
+            if "```json" in output:
+                output = output.split("```json")[1].split("```")[0].strip()
+            elif "```" in output:
+                output = output.split("```")[1].split("```")[0].strip()
+
+            data = json.loads(output)
+
+            return ManufacturerInfo(
+                what_produces=data.get("what_produces"),
+                website=data.get("website"),
+                manufacturer_aliases=data.get("aliases"),
+                country=data.get("country"),
+            )
+
+        except json.JSONDecodeError:
+            logger.debug(f"Failed to parse JSON from OpenAI for manufacturer: {manufacturer_name}")
+            return ManufacturerInfo()
+        except Exception as e:
+            logger.debug(f"Error extracting manufacturer info for {manufacturer_name}: {e}")
+            return ManufacturerInfo()
 
 
 DOMAIN_MANUFACTURER_HINTS: dict[str, str] = {
@@ -50,6 +137,7 @@ DOMAIN_MANUFACTURER_HINTS: dict[str, str] = {
 }
 
 KNOWN_MANUFACTURERS: list[str] = [
+    # Английские названия (канонические)
     "Texas Instruments",
     "Analog Devices",
     "STMicroelectronics",
@@ -68,7 +156,198 @@ KNOWN_MANUFACTURERS: list[str] = [
     "Samsung",
     "Samsung Semiconductor",
     "Sibeco",
+
+    # Русские названия
+    "СИБЕКО",
+    "Сибеко",
+
+    # Китайские названия (упрощенные)
+    "德州仪器",  # Texas Instruments
+    "亚德诺半导体",  # Analog Devices
+    "意法半导体",  # STMicroelectronics
+    "恩智浦",  # NXP
+    "英飞凌",  # Infineon
+    "瑞萨电子",  # Renesas
+    "三星",  # Samsung
+    "博通",  # Broadcom
+    "微芯科技",  # Microchip
+    "美信",  # Maxim
+    "安森美",  # onsemi
+    "罗姆",  # ROHM
+    "威世",  # Vishay
+
+    # Тайваньские названия (традиционный китайский)
+    "意法半導體",  # STMicroelectronics
+    "恩智浦半導體",  # NXP
+    "英飛凌",  # Infineon
+    "瑞薩電子",  # Renesas
+    "三星電子",  # Samsung
+    "美信半導體",  # Maxim
+    "安森美半導體",  # onsemi
+    "羅姆半導體",  # ROHM
+    "威世半導體",  # Vishay
+
+    # Японские названия
+    "テキサス・インスツルメンツ",  # Texas Instruments
+    "アナログ・デバイセズ",  # Analog Devices
+    "エスティーマイクロエレクトロニクス",  # STMicroelectronics
+    "エヌエックスピー",  # NXP
+    "インフィニオン",  # Infineon
+    "ルネサスエレクトロニクス",  # Renesas
+    "サムスン",  # Samsung
+    "ブロードコム",  # Broadcom
+    "マイクロチップ",  # Microchip
+    "マキシム",  # Maxim
+    "オン・セミコンダクター",  # onsemi
+    "ローム",  # ROHM
+    "ヴィシェイ",  # Vishay
+
+    # Корейские названия
+    "텍사스 인스트루먼트",  # Texas Instruments
+    "아날로그 디바이스",  # Analog Devices
+    "에스티마이크로일렉트로닉스",  # STMicroelectronics
+    "엔엑스피",  # NXP
+    "인피니언",  # Infineon
+    "르네사스",  # Renesas
+    "삼성",  # Samsung
+    "브로드컴",  # Broadcom
+    "마이크로칩",  # Microchip
+    "맥심",  # Maxim
+    "온세미",  # onsemi
+    "롬",  # ROHM
+    "비셰이",  # Vishay
 ]
+
+# Многоязычный словарь производителей
+# Формат: {вариант_на_любом_языке: каноническое_английское_название}
+MULTILINGUAL_MANUFACTURERS: dict[str, str] = {
+    # Sibeco (Россия)
+    "сибеко": "Sibeco",
+    "сибэко": "Sibeco",
+    "сибеко россия": "Sibeco",
+
+    # Texas Instruments
+    "德州仪器": "Texas Instruments",  # Китайский
+    "テキサス・インスツルメンツ": "Texas Instruments",  # Японский
+    "텍사스 인스트루먼트": "Texas Instruments",  # Корейский
+    "ti": "Texas Instruments",
+
+    # Analog Devices
+    "亚德诺半导体": "Analog Devices",  # Китайский
+    "アナログ・デバイセズ": "Analog Devices",  # Японский
+    "아날로그 디바이스": "Analog Devices",  # Корейский
+    "adi": "Analog Devices",
+
+    # STMicroelectronics
+    "意法半导体": "STMicroelectronics",  # Китайский
+    "意法半導體": "STMicroelectronics",  # Тайваньский (традиционный китайский)
+    "エスティーマイクロエレクトロニクス": "STMicroelectronics",  # Японский
+    "에스티마이크로일렉트로닉스": "STMicroelectronics",  # Корейский
+    "st": "STMicroelectronics",
+    "stm": "STMicroelectronics",
+
+    # NXP Semiconductors
+    "恩智浦": "NXP Semiconductors",  # Китайский
+    "恩智浦半導體": "NXP Semiconductors",  # Тайваньский
+    "エヌエックスピー": "NXP Semiconductors",  # Японский
+    "엔엑스피": "NXP Semiconductors",  # Корейский
+
+    # Infineon Technologies
+    "英飞凌": "Infineon Technologies",  # Китайский
+    "英飛凌": "Infineon Technologies",  # Тайваньский
+    "インフィニオン": "Infineon Technologies",  # Японский
+    "인피니언": "Infineon Technologies",  # Корейский
+
+    # Renesas Electronics
+    "瑞萨电子": "Renesas Electronics",  # Китайский
+    "瑞薩電子": "Renesas Electronics",  # Тайваньский
+    "ルネサスエレクトロニクス": "Renesas Electronics",  # Японский
+    "르네사스": "Renesas Electronics",  # Корейский
+
+    # Samsung
+    "三星": "Samsung",  # Китайский
+    "三星電子": "Samsung",  # Тайваньский
+    "サムスン": "Samsung",  # Японский
+    "삼성": "Samsung",  # Корейский
+    "samsung electronics": "Samsung",
+
+    # Broadcom
+    "博通": "Broadcom",  # Китайский
+    "博通公司": "Broadcom",  # Китайский (полное)
+    "ブロードコム": "Broadcom",  # Японский
+    "브로드컴": "Broadcom",  # Корейский
+
+    # Microchip Technology
+    "微芯科技": "Microchip Technology",  # Китайский
+    "微芯科技公司": "Microchip Technology",  # Китайский (полное)
+    "マイクロチップ": "Microchip Technology",  # Японский
+    "마이크로칩": "Microchip Technology",  # Корейский
+
+    # Maxim Integrated
+    "美信": "Maxim Integrated",  # Китайский
+    "美信半導體": "Maxim Integrated",  # Тайваньский
+    "マキシム": "Maxim Integrated",  # Японский
+    "맥심": "Maxim Integrated",  # Корейский
+
+    # ON Semiconductor / onsemi
+    "安森美": "onsemi",  # Китайский
+    "安森美半導體": "onsemi",  # Тайваньский
+    "オン・セミコンダクター": "onsemi",  # Японский
+    "온세미": "onsemi",  # Корейский
+    "on semiconductor": "onsemi",
+
+    # ROHM Semiconductor
+    "罗姆": "ROHM Semiconductor",  # Китайский
+    "羅姆半導體": "ROHM Semiconductor",  # Тайваньский
+    "ローム": "ROHM Semiconductor",  # Японский
+    "롬": "ROHM Semiconductor",  # Корейский
+
+    # Vishay
+    "威世": "Vishay Intertechnology",  # Китайский
+    "威世半導體": "Vishay Intertechnology",  # Тайваньский
+    "ヴィシェイ": "Vishay Intertechnology",  # Японский
+    "비셰이": "Vishay Intertechnology",  # Корейский
+}
+
+
+def normalize_manufacturer_name(name: str) -> str:
+    """
+    Нормализует название производителя на любом языке к каноническому английскому названию.
+
+    Поддерживаемые языки:
+    - Английский, Русский, Немецкий, Французский, Испанский, Итальянский
+    - Китайский (упрощенный и традиционный)
+    - Японский, Корейский
+    """
+    normalized = name.strip()
+    lower_name = normalized.lower()
+
+    # Прямое совпадение в многоязычном словаре
+    if lower_name in MULTILINGUAL_MANUFACTURERS:
+        return MULTILINGUAL_MANUFACTURERS[lower_name]
+
+    # Fuzzy matching для обработки опечаток и вариаций
+    # Проверяем совпадение с каждым вариантом в словаре
+    best_match = None
+    best_score = 0
+
+    for variant, canonical in MULTILINGUAL_MANUFACTURERS.items():
+        # Для латиницы и кириллицы используем fuzzy matching
+        # Для иероглифов проверяем точное совпадение или вхождение
+        if any(ord(c) > 0x4E00 for c in variant):  # Китайские/японские иероглифы
+            if variant in lower_name or lower_name in variant:
+                return canonical
+        else:
+            score = fuzz.ratio(lower_name, variant)
+            if score > best_score and score > 85:
+                best_score = score
+                best_match = canonical
+
+    if best_match:
+        return best_match
+
+    return normalized
+
 
 NOISY_PHRASES = (
     "verify you are",
@@ -179,6 +458,7 @@ class PartSearchEngine:
         self.fallback_provider = fallback_provider or get_fallback_provider()
         self._attach_recorder()
         self.resolver = ManufacturerResolver(session)
+        self.info_extractor = ManufacturerInfoExtractor()
 
     def _attach_recorder(self) -> None:
         for provider in [*self.providers, self.google_provider, self.fallback_provider]:
@@ -199,9 +479,20 @@ class PartSearchEngine:
         # Формируем запросы от простых к специфичным
         queries = []
 
+        # Проверяем, есть ли латинский эквивалент для кириллического названия
+        latin_hint = None
+        if part.manufacturer_hint:
+            latin_hint = normalize_manufacturer_name(part.manufacturer_hint)
+            # Если нормализация дала другое название, значит была кириллица
+            if latin_hint != part.manufacturer_hint:
+                logger.debug(f"Normalized manufacturer hint: {part.manufacturer_hint} -> {latin_hint}")
+
         # Самый простой запрос - артикул + производитель (как в браузере)
         if part.manufacturer_hint:
             queries.append(f"{part.part_number} {part.manufacturer_hint}")
+            # Добавляем латинский вариант, если он отличается
+            if latin_hint and latin_hint != part.manufacturer_hint:
+                queries.append(f"{part.part_number} {latin_hint}")
 
         # Просто артикул
         queries.append(part.part_number)
@@ -209,6 +500,8 @@ class PartSearchEngine:
         # Более специфичные запросы
         if part.manufacturer_hint:
             queries.append(f"{part.part_number} {part.manufacturer_hint} datasheet")
+            if latin_hint and latin_hint != part.manufacturer_hint:
+                queries.append(f"{part.part_number} {latin_hint} datasheet")
 
         queries.extend([
             f"{part.part_number} datasheet manufacturer",
@@ -398,14 +691,26 @@ class PartSearchEngine:
         if not matches:
             return None
         counts = Counter(matches)
-        return counts.most_common(1)[0][0]
+        most_common = counts.most_common(1)[0][0]
+        # Нормализуем название (кириллица -> латиница)
+        return normalize_manufacturer_name(most_common)
 
     def _alias_if_similar(self, part: PartBase, manufacturer: str) -> str | None:
         if not part.manufacturer_hint:
             return None
+
+        # Проверяем прямое сходство
         score = fuzz.WRatio(part.manufacturer_hint, manufacturer)
         if score >= 60:
             return part.manufacturer_hint
+
+        # Проверяем сходство нормализованной подсказки с производителем
+        normalized_hint = normalize_manufacturer_name(part.manufacturer_hint)
+        if normalized_hint != part.manufacturer_hint:
+            score_normalized = fuzz.WRatio(normalized_hint, manufacturer)
+            if score_normalized >= 60:
+                return part.manufacturer_hint
+
         return None
 
     def _evaluate_match(
@@ -646,10 +951,15 @@ class PartSearchEngine:
                 match_confidence=match_confidence,
             )
 
-        manufacturer = await self.resolver.resolve(final_candidate.manufacturer)
+        # Нормализуем название производителя (преобразуем кириллицу в латиницу)
+        normalized_manufacturer = normalize_manufacturer_name(final_candidate.manufacturer)
+        manufacturer = await self.resolver.resolve(normalized_manufacturer)
         if final_candidate.alias_used:
             await self.resolver.sync_aliases(manufacturer, [final_candidate.alias_used])
         manufacturer_name = manufacturer.name
+
+        # Извлекаем дополнительную информацию о производителе
+        manufacturer_info = await self.info_extractor.extract_info(manufacturer_name)
 
         if existing_part:
             target = existing_part
@@ -670,6 +980,11 @@ class PartSearchEngine:
         target.confidence = final_candidate.confidence
         target.source_url = final_candidate.source_url
         target.debug_log = final_candidate.debug_log if debug else None
+        # Сохраняем дополнительную информацию о производителе
+        target.what_produces = manufacturer_info.what_produces
+        target.website = manufacturer_info.website
+        target.manufacturer_aliases = manufacturer_info.manufacturer_aliases
+        target.country = manufacturer_info.country
         await self.session.flush()
         return SearchResult(
             part_number=part.part_number,
@@ -683,6 +998,10 @@ class PartSearchEngine:
             submitted_manufacturer=part.manufacturer_hint,
             match_status=match_status,
             match_confidence=match_confidence,
+            what_produces=manufacturer_info.what_produces,
+            website=manufacturer_info.website,
+            manufacturer_aliases=manufacturer_info.manufacturer_aliases,
+            country=manufacturer_info.country,
         )
 
     async def search_many(self, items: list[PartBase], *, debug: bool = False, stages: list[str] | None = None) -> list[SearchResult]:

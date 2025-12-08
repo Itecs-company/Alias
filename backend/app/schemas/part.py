@@ -92,6 +92,11 @@ class SearchResult(BaseModel):
         description="Какой сервис дал финальный ответ (Internet, googlesearch, OpenAI)",
     )
     stage_history: List[StageStatus] = Field(default_factory=list, description="Ход выполнения поиска")
+    # Новые поля
+    what_produces: Optional[str] = None
+    website: Optional[str] = None
+    manufacturer_aliases: Optional[str] = None
+    country: Optional[str] = None
 
 
 class SearchResponse(BaseModel):
