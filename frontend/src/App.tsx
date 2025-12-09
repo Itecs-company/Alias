@@ -78,6 +78,7 @@ import {
   deletePartById
 } from './api'
 import { MatchStatus, PartRead, PartRequestItem, SearchLog, SearchResult, StageStatus } from './types'
+import Draggable from 'react-draggable'
 
 const emptyItem: PartRequestItem = { part_number: '', manufacturer_hint: '' }
 
@@ -781,6 +782,8 @@ export function App() {
   const [tableContainerSize, setTableContainerSize] = useState<{ width: number; height: number }>(
     savedSettings?.tableContainerSize || { width: 1200, height: 600 }
   )
+  const [tableDraggable, setTableDraggable] = useState(false)
+  const [tablePosition, setTablePosition] = useState({ x: 0, y: 0 })
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(savedSettings?.columnWidths || {
     checkbox: 50,
     article: 120,
@@ -1735,6 +1738,17 @@ export function App() {
                     label="Подогнать под экран"
                     sx={{ ml: 1 }}
                   />
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={tableDraggable}
+                        onChange={(e) => setTableDraggable(e.target.checked)}
+                        size="small"
+                      />
+                    }
+                    label="Перетаскивание"
+                    sx={{ ml: 1 }}
+                  />
                   <ToggleButtonGroup
                     size="small"
                     exclusive
@@ -1831,31 +1845,66 @@ export function App() {
               {filteredTableData.length === 0 ? (
                 <Typography color="text.secondary">Нет данных. Загрузите Excel файл или добавьте товары вручную.</Typography>
               ) : (
-                <Box
-                  sx={{
-                    position: 'relative',
-                    width: fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width),
-                    height: fitToScreen ? 'calc(100vh - 350px)' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
-                    resize: !fitToScreen && !fullscreenMode ? 'both' : 'none',
-                    overflow: 'auto',
-                    border: !fitToScreen && !fullscreenMode ? '2px solid' : 'none',
-                    borderColor: 'primary.light',
-                    borderRadius: 3,
-                    '&::-webkit-resizer': {
-                      background: 'linear-gradient(135deg, transparent 50%, currentColor 50%)',
-                      color: 'primary.main'
+                <Draggable
+                  disabled={!tableDraggable}
+                  position={tableDraggable ? tablePosition : { x: 0, y: 0 }}
+                  onStop={(_, data) => {
+                    if (tableDraggable) {
+                      setTablePosition({ x: data.x, y: data.y })
                     }
                   }}
-                  onMouseUp={(e) => {
-                    if (!fitToScreen && !fullscreenMode) {
-                      const target = e.currentTarget
-                      setTableContainerSize({
-                        width: target.offsetWidth,
-                        height: target.offsetHeight
-                      })
-                    }
-                  }}
+                  handle=".drag-handle"
+                  bounds="parent"
                 >
+                  <Box
+                    sx={{
+                      position: tableDraggable ? 'absolute' : 'relative',
+                      width: fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width),
+                      height: fitToScreen ? 'calc(100vh - 350px)' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
+                      resize: !fitToScreen && !fullscreenMode && !tableDraggable ? 'both' : 'none',
+                      overflow: 'auto',
+                      border: tableDraggable ? '3px solid' : (!fitToScreen && !fullscreenMode ? '2px solid' : 'none'),
+                      borderColor: tableDraggable ? 'primary.main' : 'primary.light',
+                      borderRadius: 3,
+                      boxShadow: tableDraggable ? '0 8px 32px rgba(0,0,0,0.3)' : 'none',
+                      zIndex: tableDraggable ? 1000 : 'auto',
+                      backgroundColor: 'background.paper',
+                      '&::-webkit-resizer': {
+                        background: 'linear-gradient(135deg, transparent 50%, currentColor 50%)',
+                        color: 'primary.main'
+                      }
+                    }}
+                    onMouseUp={(e) => {
+                      if (!fitToScreen && !fullscreenMode && !tableDraggable) {
+                        const target = e.currentTarget
+                        setTableContainerSize({
+                          width: target.offsetWidth,
+                          height: target.offsetHeight
+                        })
+                      }
+                    }}
+                  >
+                    {tableDraggable && (
+                      <Box
+                        className="drag-handle"
+                        sx={{
+                          p: 1,
+                          backgroundColor: 'primary.main',
+                          color: 'primary.contrastText',
+                          cursor: 'move',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderTopLeftRadius: 3,
+                          borderTopRightRadius: 3,
+                          fontWeight: 600,
+                          fontSize: '0.875rem',
+                          userSelect: 'none'
+                        }}
+                      >
+                        ⋮⋮⋮ Перетащите таблицу ⋮⋮⋮
+                      </Box>
+                    )}
                   <TableContainer
                     component={Paper}
                     variant="outlined"
@@ -2099,7 +2148,8 @@ export function App() {
                     </TableBody>
                   </Table>
                 </TableContainer>
-                </Box>
+                  </Box>
+                </Draggable>
               )}
             </Stack>
           </Paper>
