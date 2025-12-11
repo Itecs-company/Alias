@@ -62,7 +62,9 @@ import {
   KeyboardArrowDown,
   KeyboardArrowUp,
   ContentCopy,
-  Api
+  Api,
+  PushPin,
+  PushPinOutlined
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
@@ -797,6 +799,7 @@ export function App() {
   )
   const [tableDraggable, setTableDraggable] = useState(false)
   const [tablePosition, setTablePosition] = useState({ x: 0, y: 0 })
+  const [tablePinned, setTablePinned] = useState(false)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(savedSettings?.columnWidths || {
     checkbox: 50,
     article: 120,
@@ -1895,10 +1898,10 @@ export function App() {
                 <Typography color="text.secondary">Нет данных. Загрузите Excel файл или добавьте товары вручную.</Typography>
               ) : (
                 <Draggable
-                  disabled={!tableDraggable}
+                  disabled={!tableDraggable || tablePinned}
                   position={tableDraggable ? tablePosition : { x: 0, y: 0 }}
                   onStop={(_, data) => {
-                    if (tableDraggable) {
+                    if (tableDraggable && !tablePinned) {
                       setTablePosition({ x: data.x, y: data.y })
                     }
                   }}
@@ -1938,15 +1941,13 @@ export function App() {
                   >
                     {tableDraggable && (
                       <Box
-                        className="drag-handle"
                         sx={{
                           p: 1,
-                          backgroundColor: 'primary.main',
+                          backgroundColor: tablePinned ? 'success.main' : 'primary.main',
                           color: 'primary.contrastText',
-                          cursor: 'move',
                           display: 'flex',
                           alignItems: 'center',
-                          justifyContent: 'center',
+                          justifyContent: 'space-between',
                           borderTopLeftRadius: 3,
                           borderTopRightRadius: 3,
                           fontWeight: 600,
@@ -1954,7 +1955,26 @@ export function App() {
                           userSelect: 'none'
                         }}
                       >
-                        ⋮⋮⋮ Перетащите таблицу ⋮⋮⋮
+                        <Box sx={{ width: 40 }} />
+                        <Box
+                          className="drag-handle"
+                          sx={{
+                            cursor: tablePinned ? 'not-allowed' : 'move',
+                            flex: 1,
+                            textAlign: 'center'
+                          }}
+                        >
+                          {tablePinned ? '📌 Таблица закреплена' : '⋮⋮⋮ Перетащите таблицу ⋮⋮⋮'}
+                        </Box>
+                        <Tooltip title={tablePinned ? 'Открепить таблицу' : 'Закрепить таблицу'}>
+                          <IconButton
+                            size="small"
+                            onClick={() => setTablePinned(!tablePinned)}
+                            sx={{ color: 'primary.contrastText' }}
+                          >
+                            {tablePinned ? <PushPin fontSize="small" /> : <PushPinOutlined fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
                       </Box>
                     )}
                   <TableContainer
