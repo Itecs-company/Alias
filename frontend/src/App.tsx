@@ -1506,6 +1506,11 @@ export function App() {
                     </ToggleButton>
                   ))}
                 </ToggleButtonGroup>
+                <Tooltip title="API настройки">
+                  <IconButton color="default" onClick={() => setApiConfigOpen(true)}>
+                    <Api />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title="Режим отладки">
                   <IconButton color={debugMode ? 'secondary' : 'default'} onClick={() => setDebugMode((prev) => !prev)}>
                     <BugReport />
@@ -1898,11 +1903,12 @@ export function App() {
                     }
                   }}
                   handle=".drag-handle"
-                  bounds="parent"
+                  grid={[1, 1]}
+                  scale={1}
                 >
                   <Box
                     sx={{
-                      position: tableDraggable ? 'absolute' : 'relative',
+                      position: tableDraggable ? 'fixed' : 'relative',
                       width: fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width),
                       height: fitToScreen ? 'calc(100vh - 350px)' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
                       resize: !fitToScreen && !fullscreenMode && !tableDraggable ? 'both' : 'none',
@@ -1913,6 +1919,8 @@ export function App() {
                       boxShadow: tableDraggable ? '0 8px 32px rgba(0,0,0,0.3)' : 'none',
                       zIndex: tableDraggable ? 1000 : 'auto',
                       backgroundColor: 'background.paper',
+                      cursor: tableDraggable ? 'default' : 'auto',
+                      transition: tableDraggable ? 'none' : 'all 0.3s ease-in-out',
                       '&::-webkit-resizer': {
                         background: 'linear-gradient(135deg, transparent 50%, currentColor 50%)',
                         color: 'primary.main'
