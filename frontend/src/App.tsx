@@ -10,6 +10,10 @@ import {
   Collapse,
   Container,
   CssBaseline,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   FormControlLabel,
   Grid,
@@ -57,7 +61,10 @@ import {
   FullscreenExit,
   KeyboardArrowDown,
   KeyboardArrowUp,
-  ContentCopy
+  ContentCopy,
+  Api,
+  PushPin,
+  PushPinOutlined
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
@@ -78,6 +85,7 @@ import {
   deletePartById
 } from './api'
 import { MatchStatus, PartRead, PartRequestItem, SearchLog, SearchResult, StageStatus } from './types'
+import Draggable from 'react-draggable'
 
 const emptyItem: PartRequestItem = { part_number: '', manufacturer_hint: '' }
 
@@ -712,6 +720,14 @@ export function App() {
   const [autoRefreshLogs, setAutoRefreshLogs] = useState(false)
   const [refreshInterval, setRefreshInterval] = useState(5000) // 5 seconds default
   const logsTableRef = useRef<HTMLDivElement>(null)
+  const [apiConfigOpen, setApiConfigOpen] = useState(false)
+  const [apiConfig, setApiConfig] = useState({
+    apiUrl: localStorage.getItem('api_url') || '',
+    apiKey: localStorage.getItem('api_key') || '',
+    apiToken: localStorage.getItem('api_token') || '',
+    swaggerUrl: localStorage.getItem('swagger_url') || '',
+    customHeaders: localStorage.getItem('custom_headers') || ''
+  })
   const tableData = useMemo(() => {
     const sorted = [...history].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -781,6 +797,9 @@ export function App() {
   const [tableContainerSize, setTableContainerSize] = useState<{ width: number; height: number }>(
     savedSettings?.tableContainerSize || { width: 1200, height: 600 }
   )
+  const [tableDraggable, setTableDraggable] = useState(false)
+  const [tablePosition, setTablePosition] = useState({ x: 0, y: 0 })
+  const [tablePinned, setTablePinned] = useState(false)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(savedSettings?.columnWidths || {
     checkbox: 50,
     article: 120,
@@ -864,6 +883,20 @@ export function App() {
     } catch {
       return jsonString
     }
+  }
+
+  const handleSaveApiConfig = () => {
+    localStorage.setItem('api_url', apiConfig.apiUrl)
+    localStorage.setItem('api_key', apiConfig.apiKey)
+    localStorage.setItem('api_token', apiConfig.apiToken)
+    localStorage.setItem('swagger_url', apiConfig.swaggerUrl)
+    localStorage.setItem('custom_headers', apiConfig.customHeaders)
+    setApiConfigOpen(false)
+    setSnackbar('API настройки сохранены')
+  }
+
+  const handleApiConfigChange = (field: keyof typeof apiConfig, value: string) => {
+    setApiConfig((prev) => ({ ...prev, [field]: value }))
   }
 
   const handleDeletePartRow = async (id: number) => {
@@ -1476,6 +1509,11 @@ export function App() {
                     </ToggleButton>
                   ))}
                 </ToggleButtonGroup>
+                <Tooltip title="API настройки">
+                  <IconButton color="default" onClick={() => setApiConfigOpen(true)}>
+                    <Api />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title="Режим отладки">
                   <IconButton color={debugMode ? 'secondary' : 'default'} onClick={() => setDebugMode((prev) => !prev)}>
                     <BugReport />
@@ -1552,6 +1590,23 @@ export function App() {
                       {credentialsLoading ? 'Сохранение...' : 'Сохранить учетные данные'}
                     </Button>
                   </Stack>
+                </Box>
+                <Divider />
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                    API Интеграция
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Настройте подключение к внешним API (Swagger и другим проектам)
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    startIcon={<Api />}
+                    onClick={() => setApiConfigOpen(true)}
+                    size="large"
+                  >
+                    Настроить API подключение
+                  </Button>
                 </Box>
               </Stack>
             </Paper>
@@ -1735,6 +1790,17 @@ export function App() {
                     label="Подогнать под экран"
                     sx={{ ml: 1 }}
                   />
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={tableDraggable}
+                        onChange={(e) => setTableDraggable(e.target.checked)}
+                        size="small"
+                      />
+                    }
+                    label="Перетаскивание"
+                    sx={{ ml: 1 }}
+                  />
                   <ToggleButtonGroup
                     size="small"
                     exclusive
@@ -1831,31 +1897,86 @@ export function App() {
               {filteredTableData.length === 0 ? (
                 <Typography color="text.secondary">Нет данных. Загрузите Excel файл или добавьте товары вручную.</Typography>
               ) : (
-                <Box
-                  sx={{
-                    position: 'relative',
-                    width: fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width),
-                    height: fitToScreen ? 'calc(100vh - 350px)' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
-                    resize: !fitToScreen && !fullscreenMode ? 'both' : 'none',
-                    overflow: 'auto',
-                    border: !fitToScreen && !fullscreenMode ? '2px solid' : 'none',
-                    borderColor: 'primary.light',
-                    borderRadius: 3,
-                    '&::-webkit-resizer': {
-                      background: 'linear-gradient(135deg, transparent 50%, currentColor 50%)',
-                      color: 'primary.main'
+                <Draggable
+                  disabled={!tableDraggable || tablePinned}
+                  position={tableDraggable ? tablePosition : { x: 0, y: 0 }}
+                  onStop={(_, data) => {
+                    if (tableDraggable && !tablePinned) {
+                      setTablePosition({ x: data.x, y: data.y })
                     }
                   }}
-                  onMouseUp={(e) => {
-                    if (!fitToScreen && !fullscreenMode) {
-                      const target = e.currentTarget
-                      setTableContainerSize({
-                        width: target.offsetWidth,
-                        height: target.offsetHeight
-                      })
-                    }
-                  }}
+                  handle=".drag-handle"
+                  grid={[1, 1]}
+                  scale={1}
                 >
+                  <Box
+                    sx={{
+                      position: tableDraggable ? 'fixed' : 'relative',
+                      width: fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width),
+                      height: fitToScreen ? 'calc(100vh - 350px)' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
+                      resize: !fitToScreen && !fullscreenMode && !tableDraggable ? 'both' : 'none',
+                      overflow: 'auto',
+                      border: tableDraggable ? '3px solid' : (!fitToScreen && !fullscreenMode ? '2px solid' : 'none'),
+                      borderColor: tableDraggable ? 'primary.main' : 'primary.light',
+                      borderRadius: 3,
+                      boxShadow: tableDraggable ? '0 8px 32px rgba(0,0,0,0.3)' : 'none',
+                      zIndex: tableDraggable ? 1000 : 'auto',
+                      backgroundColor: 'background.paper',
+                      cursor: tableDraggable ? 'default' : 'auto',
+                      transition: tableDraggable ? 'none' : 'all 0.3s ease-in-out',
+                      '&::-webkit-resizer': {
+                        background: 'linear-gradient(135deg, transparent 50%, currentColor 50%)',
+                        color: 'primary.main'
+                      }
+                    }}
+                    onMouseUp={(e) => {
+                      if (!fitToScreen && !fullscreenMode && !tableDraggable) {
+                        const target = e.currentTarget
+                        setTableContainerSize({
+                          width: target.offsetWidth,
+                          height: target.offsetHeight
+                        })
+                      }
+                    }}
+                  >
+                    {tableDraggable && (
+                      <Box
+                        sx={{
+                          p: 1,
+                          backgroundColor: tablePinned ? 'success.main' : 'primary.main',
+                          color: 'primary.contrastText',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          borderTopLeftRadius: 3,
+                          borderTopRightRadius: 3,
+                          fontWeight: 600,
+                          fontSize: '0.875rem',
+                          userSelect: 'none'
+                        }}
+                      >
+                        <Box sx={{ width: 40 }} />
+                        <Box
+                          className="drag-handle"
+                          sx={{
+                            cursor: tablePinned ? 'not-allowed' : 'move',
+                            flex: 1,
+                            textAlign: 'center'
+                          }}
+                        >
+                          {tablePinned ? '📌 Таблица закреплена' : '⋮⋮⋮ Перетащите таблицу ⋮⋮⋮'}
+                        </Box>
+                        <Tooltip title={tablePinned ? 'Открепить таблицу' : 'Закрепить таблицу'}>
+                          <IconButton
+                            size="small"
+                            onClick={() => setTablePinned(!tablePinned)}
+                            sx={{ color: 'primary.contrastText' }}
+                          >
+                            {tablePinned ? <PushPin fontSize="small" /> : <PushPinOutlined fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    )}
                   <TableContainer
                     component={Paper}
                     variant="outlined"
@@ -2099,7 +2220,8 @@ export function App() {
                     </TableBody>
                   </Table>
                 </TableContainer>
-                </Box>
+                  </Box>
+                </Draggable>
               )}
             </Stack>
           </Paper>
@@ -2341,6 +2463,75 @@ export function App() {
         autoHideDuration={4000}
         onClose={() => setSnackbar(null)}
       />
+      <Dialog
+        open={apiConfigOpen}
+        onClose={() => setApiConfigOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box display="flex" alignItems="center" gap={1}>
+            <Api color="primary" />
+            <Typography variant="h6">Настройка API подключения</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={3} sx={{ mt: 2 }}>
+            <TextField
+              label="API URL"
+              value={apiConfig.apiUrl}
+              onChange={(e) => handleApiConfigChange('apiUrl', e.target.value)}
+              fullWidth
+              placeholder="https://api.example.com"
+              helperText="Базовый URL для API запросов"
+            />
+            <TextField
+              label="API Key"
+              value={apiConfig.apiKey}
+              onChange={(e) => handleApiConfigChange('apiKey', e.target.value)}
+              fullWidth
+              placeholder="your-api-key"
+              helperText="API ключ для аутентификации"
+              type="password"
+            />
+            <TextField
+              label="API Token"
+              value={apiConfig.apiToken}
+              onChange={(e) => handleApiConfigChange('apiToken', e.target.value)}
+              fullWidth
+              placeholder="Bearer token"
+              helperText="Токен авторизации (если требуется)"
+              type="password"
+            />
+            <TextField
+              label="Swagger URL"
+              value={apiConfig.swaggerUrl}
+              onChange={(e) => handleApiConfigChange('swaggerUrl', e.target.value)}
+              fullWidth
+              placeholder="https://api.example.com/swagger/v1/swagger.json"
+              helperText="URL Swagger документации"
+            />
+            <TextField
+              label="Дополнительные заголовки"
+              value={apiConfig.customHeaders}
+              onChange={(e) => handleApiConfigChange('customHeaders', e.target.value)}
+              fullWidth
+              multiline
+              rows={4}
+              placeholder='{"Content-Type": "application/json", "X-Custom-Header": "value"}'
+              helperText="JSON объект с дополнительными HTTP заголовками"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApiConfigOpen(false)}>
+            Отмена
+          </Button>
+          <Button variant="contained" onClick={handleSaveApiConfig} startIcon={<Api />}>
+            Сохранить настройки
+          </Button>
+        </DialogActions>
+      </Dialog>
     </ThemeProvider>
   )
 }
