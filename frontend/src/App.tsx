@@ -1917,7 +1917,9 @@ export function App() {
                     sx={{
                       position: tableDraggable ? 'fixed' : 'relative',
                       width: fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width),
-                      height: fitToScreen ? 'calc(100vh - 350px)' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
+                      height: fitToScreen ? 'auto' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
+                      minHeight: fitToScreen ? '400px' : 'auto',
+                      maxHeight: fitToScreen ? 'calc(100vh - 250px)' : 'none',
                       resize: !fitToScreen && !fullscreenMode && !tableDraggable ? 'both' : 'none',
                       overflow: 'auto',
                       border: tableDraggable ? '3px solid' : (!fitToScreen && !fullscreenMode ? '2px solid' : 'none'),
@@ -1928,6 +1930,15 @@ export function App() {
                       backgroundColor: 'background.paper',
                       cursor: tableDraggable ? 'default' : 'auto',
                       transition: tableDraggable ? 'none' : 'all 0.3s ease-in-out',
+                      // Responsive adjustments
+                      '@media (max-width: 1200px)': {
+                        width: fitToScreen ? '100%' : 'auto',
+                        maxWidth: '100%'
+                      },
+                      '@media (max-width: 768px)': {
+                        minHeight: '300px',
+                        fontSize: '0.875rem'
+                      },
                       '&::-webkit-resizer': {
                         background: 'linear-gradient(135deg, transparent 50%, currentColor 50%)',
                         color: 'primary.main'
@@ -1988,30 +1999,54 @@ export function App() {
                       maxHeight: '100%',
                       height: '100%',
                       borderRadius: 3,
-                      overflowX: fitToScreen ? 'hidden' : 'auto',
-                      overflowY: fitToScreen ? 'hidden' : 'auto',
+                      overflowX: 'auto',
+                      overflowY: 'auto',
                       '& .MuiTable-root': {
-                        minWidth: fitToScreen ? 'auto' : { xs: 800, md: 'auto' }
+                        minWidth: fitToScreen ? 'auto' : { xs: '100%', md: 'auto' }
                       },
                       fontSize: tableFontSize,
-                      transition: 'all 0.3s ease-in-out'
+                      transition: 'all 0.3s ease-in-out',
+                      // Responsive scrolling
+                      '@media (max-width: 1200px)': {
+                        overflowX: 'auto',
+                        '&::-webkit-scrollbar': {
+                          height: '8px'
+                        },
+                        '&::-webkit-scrollbar-thumb': {
+                          backgroundColor: 'rgba(0,0,0,0.2)',
+                          borderRadius: '4px'
+                        }
+                      }
                     }}
                   >
                   <Table
                     stickyHeader={!fitToScreen}
                     size={tableSize}
                     sx={{
-                      tableLayout: fitToScreen ? 'auto' : 'fixed',
-                      width: fitToScreen ? '100%' : 'auto',
-                      height: fitToScreen ? '100%' : 'auto',
+                      tableLayout: fitToScreen ? 'auto' : 'auto',
+                      width: '100%',
+                      minWidth: fitToScreen ? 'auto' : '1200px',
                       '& .MuiTableCell-root': {
                         fontSize: tableFontSize,
                         ...(fitToScreen && {
-                          padding: '4px 8px',
+                          padding: '6px 8px',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis'
                         })
+                      },
+                      // Responsive cell sizing
+                      '@media (max-width: 1200px)': {
+                        '& .MuiTableCell-root': {
+                          fontSize: '0.875rem',
+                          padding: '8px'
+                        }
+                      },
+                      '@media (max-width: 768px)': {
+                        '& .MuiTableCell-root': {
+                          fontSize: '0.8rem',
+                          padding: '6px'
+                        }
                       }
                     }}
                   >
@@ -2248,7 +2283,15 @@ export function App() {
                               <TableRow>
                                 <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={13}>
                                   <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-                                    <Box sx={{ margin: 2, p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
+                                    <Box sx={{
+                                      margin: { xs: 1, md: 2 },
+                                      p: { xs: 1.5, md: 2 },
+                                      bgcolor: 'background.default',
+                                      borderRadius: 2,
+                                      '@media (max-width: 768px)': {
+                                        fontSize: '0.875rem'
+                                      }
+                                    }}>
                                       <Stack spacing={2}>
                                         <Box display="flex" justifyContent="space-between" alignItems="center">
                                           <Typography variant="h6" gutterBottom component="div">
@@ -2285,25 +2328,49 @@ export function App() {
                                             </Typography>
                                             <Stack spacing={1}>
                                               {row.stageHistory.map((stage, idx) => (
-                                                <Paper key={idx} sx={{ p: 1.5, bgcolor: 'action.hover' }}>
+                                                <Paper key={idx} sx={{
+                                                  p: { xs: 1, md: 1.5 },
+                                                  bgcolor: 'action.hover',
+                                                  '@media (max-width: 768px)': {
+                                                    fontSize: '0.85rem'
+                                                  }
+                                                }}>
                                                   <Stack spacing={0.5}>
-                                                    <Box display="flex" gap={1} alignItems="center">
+                                                    <Box display="flex" gap={1} alignItems="center" flexWrap="wrap">
                                                       <Chip
                                                         label={stage.name}
                                                         size="small"
                                                         color="primary"
                                                         variant="outlined"
+                                                        sx={{
+                                                          '@media (max-width: 768px)': {
+                                                            fontSize: '0.75rem',
+                                                            height: '24px'
+                                                          }
+                                                        }}
                                                       />
                                                       <Chip
                                                         label={stageStatusDescription[stage.status] || stage.status}
                                                         size="small"
                                                         color={stageStatusChipColor[stage.status] || 'default'}
+                                                        sx={{
+                                                          '@media (max-width: 768px)': {
+                                                            fontSize: '0.75rem',
+                                                            height: '24px'
+                                                          }
+                                                        }}
                                                       />
                                                       {stage.provider && (
                                                         <Chip
                                                           label={stage.provider}
                                                           size="small"
                                                           variant="outlined"
+                                                          sx={{
+                                                            '@media (max-width: 768px)': {
+                                                              fontSize: '0.75rem',
+                                                              height: '24px'
+                                                            }
+                                                          }}
                                                         />
                                                       )}
                                                     </Box>
@@ -2331,18 +2398,19 @@ export function App() {
                                         {row.debugLog && (
                                           <Box>
                                             <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                                              Debug Log
+                                              Debug Log (полный)
                                             </Typography>
                                             <Paper
                                               sx={{
                                                 p: 2,
                                                 bgcolor: 'action.hover',
-                                                maxHeight: 400,
-                                                overflow: 'auto',
+                                                maxHeight: 'none',
+                                                overflow: 'visible',
                                                 fontFamily: 'monospace',
                                                 fontSize: '0.85rem',
                                                 whiteSpace: 'pre-wrap',
-                                                wordBreak: 'break-word'
+                                                wordBreak: 'break-word',
+                                                lineHeight: 1.6
                                               }}
                                             >
                                               {row.debugLog}
@@ -2548,9 +2616,9 @@ export function App() {
                                         {entry.payload && (
                                           <Box>
                                             <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                                              Payload {entry.direction === 'response' ? '(Ответ)' : '(Запрос)'}:
+                                              Payload {entry.direction === 'response' ? '(Ответ)' : '(Запрос)'} - Полный:
                                             </Typography>
-                                            <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper', maxHeight: 400, overflow: 'auto' }}>
+                                            <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper', maxHeight: 'none', overflow: 'visible' }}>
                                               <Typography
                                                 variant="body2"
                                                 component="pre"
@@ -2559,7 +2627,8 @@ export function App() {
                                                   whiteSpace: 'pre-wrap',
                                                   wordBreak: 'break-word',
                                                   margin: 0,
-                                                  fontSize: '0.85rem'
+                                                  fontSize: '0.85rem',
+                                                  lineHeight: 1.6
                                                 }}
                                               >
                                                 {formattedPayload}
