@@ -54,6 +54,8 @@ def _upgrade_schema(connection) -> None:  # pragma: no cover - runtime bootstrap
         "website": "VARCHAR(500)",
         "manufacturer_aliases": "TEXT",
         "country": "VARCHAR(255)",
+        "search_stage": "VARCHAR(100)",
+        "stage_history": "JSON",
     }.items():
         if not name:
             continue

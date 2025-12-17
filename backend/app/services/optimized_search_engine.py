@@ -91,6 +91,9 @@ class OptimizedPartSearchEngine:
         self.resolver = ManufacturerResolver(session)
         self.info_extractor = ManufacturerInfoExtractor()
 
+        # Подключаем логирование к провайдерам
+        self._attach_recorder()
+
         # OpenAI client для анализа документов
         self.openai_client: AsyncOpenAI | None = None
         if settings.openai_api_key:
@@ -104,6 +107,12 @@ class OptimizedPartSearchEngine:
         self.temp_dir = Path(tempfile.gettempdir()) / "aliasfinder_docs"
         self.temp_dir.mkdir(exist_ok=True)
 
+    def _attach_recorder(self) -> None:
+        """Подключает логирование к всем провайдерам."""
+        for provider in self.providers:
+            if hasattr(provider, "set_recorder"):
+                provider.set_recorder(self.log_recorder)
+
     async def _simple_web_search(
         self,
         part: PartBase,
@@ -115,6 +124,10 @@ class OptimizedPartSearchEngine:
         """
         logger.info(f"Stage 1: Simple web search for {part.part_number}")
 
+        if not providers:
+            logger.warning("No search providers available")
+            return None
+
         # Формируем простые запросы
         queries = []
         if part.manufacturer_hint:
@@ -124,19 +137,26 @@ class OptimizedPartSearchEngine:
                 queries.append(f"{part.part_number} {latin_hint}")
         queries.append(part.part_number)
 
+        logger.debug(f"Generated {len(queries)} search queries")
+
         # Собираем URLs
         urls = []
         for provider in providers:
+            logger.debug(f"Using provider: {provider.name}")
             for query in queries:
                 try:
+                    logger.debug(f"Searching: {query}")
                     results = await provider.search(query, max_results=5)
+                    logger.debug(f"Provider {provider.name} returned {len(results)} results")
                     urls.extend([r.get("link") for r in results if r.get("link")])
                     if len(urls) >= 10:
                         break
                 except Exception as e:
-                    logger.debug(f"Provider {provider.name} failed: {e}")
+                    logger.error(f"Provider {provider.name} failed: {e}", exc_info=True)
             if len(urls) >= 10:
                 break
+
+        logger.info(f"Collected {len(urls)} URLs from providers")
 
         # Анализируем URLs с помощью эвристик
         for url in urls[:5]:  # Ограничиваем до 5 URL для скорости
@@ -694,6 +714,7 @@ class OptimizedPartSearchEngine:
                 target.match_status = "pending"
                 target.match_confidence = None
                 target.debug_log = "No manufacturer found after all stages"
+                target.stage_history = [stage.dict() for stage in stage_history]  # Сохраняем историю этапов
                 await self.session.flush()
 
             return SearchResult(
@@ -743,6 +764,7 @@ class OptimizedPartSearchEngine:
         target.source_url = final_candidate.source_url
         target.debug_log = final_candidate.debug_info if debug else None
         target.search_stage = final_stage
+        target.stage_history = [stage.dict() for stage in stage_history]  # Сохраняем историю этапов
         target.what_produces = manufacturer_info.what_produces
         target.website = manufacturer_info.website
         target.manufacturer_aliases = manufacturer_info.manufacturer_aliases
