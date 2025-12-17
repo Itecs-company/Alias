@@ -717,6 +717,7 @@ export function App() {
     q: ''
   })
   const [expandedLogIds, setExpandedLogIds] = useState<Set<number>>(new Set())
+  const [expandedTableRows, setExpandedTableRows] = useState<Set<number>>(new Set())
   const [autoRefreshLogs, setAutoRefreshLogs] = useState(false)
   const [refreshInterval, setRefreshInterval] = useState(5000) // 5 seconds default
   const logsTableRef = useRef<HTMLDivElement>(null)
@@ -746,7 +747,10 @@ export function App() {
       whatProduces: record.what_produces ?? '—',
       website: record.website ?? '—',
       manufacturerAliases: record.manufacturer_aliases ?? '—',
-      country: record.country ?? '—'
+      country: record.country ?? '—',
+      debugLog: record.debug_log ?? null,
+      stageHistory: record.stage_history ?? null,
+      searchStage: record.search_stage ?? null
     }))
   }, [history])
   const filteredTableData = useMemo(() => {
@@ -2079,144 +2083,281 @@ export function App() {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {filteredTableData.map((row, rowIndex) => (
-                        <TableRow key={row.key} hover sx={{ height: fitToScreen ? 'auto' : rowHeight }}>
-                          <TableCell
-                            padding="checkbox"
-                            sx={{
-                              width: fitToScreen ? 'auto' : columnWidths.checkbox,
-                              height: fitToScreen ? 'auto' : rowHeight,
-                              position: 'relative',
-                              userSelect: rowResizer.isResizing ? 'none' : 'auto'
-                            }}
-                          >
-                            <Checkbox
-                              checked={selectedIds.has(row.id)}
-                              onChange={(e) => {
-                                setSelectedIds(prev => {
-                                  const next = new Set(prev)
-                                  if (e.target.checked) {
-                                    next.add(row.id)
-                                  } else {
-                                    next.delete(row.id)
-                                  }
-                                  return next
-                                })
-                              }}
-                            />
-                            {!fitToScreen && rowIndex === 0 && (
-                              <Box
-                                onMouseDown={(e) => rowResizer.handleMouseDown(e, rowHeight)}
+                      {filteredTableData.map((row, rowIndex) => {
+                        const isExpanded = expandedTableRows.has(row.id)
+                        const hasLogs = row.debugLog || row.stageHistory
+                        return (
+                          <Fragment key={row.key}>
+                            <TableRow hover sx={{ height: fitToScreen ? 'auto' : rowHeight }}>
+                              <TableCell
+                                padding="checkbox"
                                 sx={{
-                                  position: 'absolute',
-                                  bottom: 0,
-                                  left: 0,
-                                  right: 0,
-                                  height: 5,
-                                  cursor: 'row-resize',
-                                  backgroundColor: rowResizer.isResizing ? 'primary.main' : 'transparent',
-                                  '&:hover': {
-                                    backgroundColor: 'primary.light'
-                                  },
-                                  zIndex: 1
+                                  width: fitToScreen ? 'auto' : columnWidths.checkbox,
+                                  height: fitToScreen ? 'auto' : rowHeight,
+                                  position: 'relative',
+                                  userSelect: rowResizer.isResizing ? 'none' : 'auto'
                                 }}
-                              />
-                            )}
-                          </TableCell>
-                          {/* Известные данные */}
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.article, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.article}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.submitted, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.submitted}
-                          </TableCell>
-                          {/* Данные от поиска */}
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturer, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.manufacturer}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.alias, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.alias}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.match, height: fitToScreen ? 'auto' : rowHeight }}>
-                            {renderMatchChip(row.matchStatus, row.matchConfidence)}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.confidence, height: fitToScreen ? 'auto' : rowHeight }}>
-                            {row.confidence ? `${(row.confidence * 100).toFixed(1)}%` : '—'}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.source, height: fitToScreen ? 'auto' : rowHeight }}>
-                            {row.sourceUrl ? (
-                              <Tooltip title={row.sourceUrl}>
-                                <Box
-                                  component="a"
-                                  href={row.sourceUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  sx={{
-                                    color: 'secondary.main',
-                                    textDecoration: 'none',
-                                    '&:hover': { textDecoration: 'underline' },
-                                    display: 'block',
-                                    maxWidth: 200,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap'
-                                  }}
-                                >
-                                  {row.sourceUrl}
-                                </Box>
-                              </Tooltip>
-                            ) : (
-                              '—'
-                            )}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.whatProduces, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.whatProduces}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.website, height: fitToScreen ? 'auto' : rowHeight }}>
-                            {row.website !== '—' ? (
-                              <Tooltip title={row.website}>
-                                <Box
-                                  component="a"
-                                  href={row.website}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  sx={{
-                                    color: 'secondary.main',
-                                    textDecoration: 'none',
-                                    '&:hover': { textDecoration: 'underline' },
-                                    display: 'block',
-                                    maxWidth: fitToScreen ? 'none' : 150,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap'
-                                  }}
-                                >
-                                  {row.website}
-                                </Box>
-                              </Tooltip>
-                            ) : (
-                              '—'
-                            )}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturerAliases, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.manufacturerAliases}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.country, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.country}
-                          </TableCell>
-                          <TableCell align="center" sx={{ width: fitToScreen ? 'auto' : columnWidths.actions, height: fitToScreen ? 'auto' : rowHeight }}>
-                            <Tooltip title="Удалить строку">
-                              <IconButton
-                                size="small"
-                                color="error"
-                                onClick={() => handleDeletePartRow(row.id)}
                               >
-                                <DeleteForever fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                                <Stack direction="row" alignItems="center" spacing={0.5}>
+                                  {hasLogs && (
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => {
+                                        setExpandedTableRows(prev => {
+                                          const next = new Set(prev)
+                                          if (next.has(row.id)) {
+                                            next.delete(row.id)
+                                          } else {
+                                            next.add(row.id)
+                                          }
+                                          return next
+                                        })
+                                      }}
+                                    >
+                                      {isExpanded ? <KeyboardArrowUp fontSize="small" /> : <KeyboardArrowDown fontSize="small" />}
+                                    </IconButton>
+                                  )}
+                                  <Checkbox
+                                    checked={selectedIds.has(row.id)}
+                                    onChange={(e) => {
+                                      setSelectedIds(prev => {
+                                        const next = new Set(prev)
+                                        if (e.target.checked) {
+                                          next.add(row.id)
+                                        } else {
+                                          next.delete(row.id)
+                                        }
+                                        return next
+                                      })
+                                    }}
+                                  />
+                                </Stack>
+                                {!fitToScreen && rowIndex === 0 && (
+                                  <Box
+                                    onMouseDown={(e) => rowResizer.handleMouseDown(e, rowHeight)}
+                                    sx={{
+                                      position: 'absolute',
+                                      bottom: 0,
+                                      left: 0,
+                                      right: 0,
+                                      height: 5,
+                                      cursor: 'row-resize',
+                                      backgroundColor: rowResizer.isResizing ? 'primary.main' : 'transparent',
+                                      '&:hover': {
+                                        backgroundColor: 'primary.light'
+                                      },
+                                      zIndex: 1
+                                    }}
+                                  />
+                                )}
+                              </TableCell>
+                              {/* Известные данные */}
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.article, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.article}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.submitted, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.submitted}
+                              </TableCell>
+                              {/* Данные от поиска */}
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturer, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.manufacturer}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.alias, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.alias}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.match, height: fitToScreen ? 'auto' : rowHeight }}>
+                                {renderMatchChip(row.matchStatus, row.matchConfidence)}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.confidence, height: fitToScreen ? 'auto' : rowHeight }}>
+                                {row.confidence ? `${(row.confidence * 100).toFixed(1)}%` : '—'}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.source, height: fitToScreen ? 'auto' : rowHeight }}>
+                                {row.sourceUrl ? (
+                                  <Tooltip title={row.sourceUrl}>
+                                    <Box
+                                      component="a"
+                                      href={row.sourceUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      sx={{
+                                        color: 'secondary.main',
+                                        textDecoration: 'none',
+                                        '&:hover': { textDecoration: 'underline' },
+                                        display: 'block',
+                                        maxWidth: 200,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                    >
+                                      {row.sourceUrl}
+                                    </Box>
+                                  </Tooltip>
+                                ) : (
+                                  '—'
+                                )}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.whatProduces, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.whatProduces}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.website, height: fitToScreen ? 'auto' : rowHeight }}>
+                                {row.website !== '—' ? (
+                                  <Tooltip title={row.website}>
+                                    <Box
+                                      component="a"
+                                      href={row.website}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      sx={{
+                                        color: 'secondary.main',
+                                        textDecoration: 'none',
+                                        '&:hover': { textDecoration: 'underline' },
+                                        display: 'block',
+                                        maxWidth: fitToScreen ? 'none' : 150,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                    >
+                                      {row.website}
+                                    </Box>
+                                  </Tooltip>
+                                ) : (
+                                  '—'
+                                )}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturerAliases, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.manufacturerAliases}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.country, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.country}
+                              </TableCell>
+                              <TableCell align="center" sx={{ width: fitToScreen ? 'auto' : columnWidths.actions, height: fitToScreen ? 'auto' : rowHeight }}>
+                                <Tooltip title="Удалить строку">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => handleDeletePartRow(row.id)}
+                                  >
+                                    <DeleteForever fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </TableCell>
+                            </TableRow>
+                            {hasLogs && (
+                              <TableRow>
+                                <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={13}>
+                                  <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                                    <Box sx={{ margin: 2, p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
+                                      <Stack spacing={2}>
+                                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                                          <Typography variant="h6" gutterBottom component="div">
+                                            Детали поиска
+                                          </Typography>
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => {
+                                              const logText = JSON.stringify({
+                                                article: row.article,
+                                                search_stage: row.searchStage,
+                                                debug_log: row.debugLog,
+                                                stage_history: row.stageHistory
+                                              }, null, 2)
+                                              navigator.clipboard.writeText(logText)
+                                              setSnackbar('Логи скопированы в буфер обмена')
+                                            }}
+                                          >
+                                            <ContentCopy fontSize="small" />
+                                          </IconButton>
+                                        </Box>
+                                        {row.searchStage && (
+                                          <Box>
+                                            <Typography variant="subtitle2" color="text.secondary">
+                                              Этап поиска
+                                            </Typography>
+                                            <Typography variant="body2">{row.searchStage}</Typography>
+                                          </Box>
+                                        )}
+                                        {row.stageHistory && row.stageHistory.length > 0 && (
+                                          <Box>
+                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                              История этапов
+                                            </Typography>
+                                            <Stack spacing={1}>
+                                              {row.stageHistory.map((stage, idx) => (
+                                                <Paper key={idx} sx={{ p: 1.5, bgcolor: 'action.hover' }}>
+                                                  <Stack spacing={0.5}>
+                                                    <Box display="flex" gap={1} alignItems="center">
+                                                      <Chip
+                                                        label={stage.name}
+                                                        size="small"
+                                                        color="primary"
+                                                        variant="outlined"
+                                                      />
+                                                      <Chip
+                                                        label={stageStatusDescription[stage.status] || stage.status}
+                                                        size="small"
+                                                        color={stageStatusChipColor[stage.status] || 'default'}
+                                                      />
+                                                      {stage.provider && (
+                                                        <Chip
+                                                          label={stage.provider}
+                                                          size="small"
+                                                          variant="outlined"
+                                                        />
+                                                      )}
+                                                    </Box>
+                                                    {stage.confidence !== null && stage.confidence !== undefined && (
+                                                      <Typography variant="caption" color="text.secondary">
+                                                        Уверенность: {(stage.confidence * 100).toFixed(1)}%
+                                                      </Typography>
+                                                    )}
+                                                    {stage.urls_considered !== undefined && (
+                                                      <Typography variant="caption" color="text.secondary">
+                                                        URLs проверено: {stage.urls_considered}
+                                                      </Typography>
+                                                    )}
+                                                    {stage.message && (
+                                                      <Typography variant="caption" color="text.secondary">
+                                                        {stage.message}
+                                                      </Typography>
+                                                    )}
+                                                  </Stack>
+                                                </Paper>
+                                              ))}
+                                            </Stack>
+                                          </Box>
+                                        )}
+                                        {row.debugLog && (
+                                          <Box>
+                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                              Debug Log
+                                            </Typography>
+                                            <Paper
+                                              sx={{
+                                                p: 2,
+                                                bgcolor: 'action.hover',
+                                                maxHeight: 400,
+                                                overflow: 'auto',
+                                                fontFamily: 'monospace',
+                                                fontSize: '0.85rem',
+                                                whiteSpace: 'pre-wrap',
+                                                wordBreak: 'break-word'
+                                              }}
+                                            >
+                                              {row.debugLog}
+                                            </Paper>
+                                          </Box>
+                                        )}
+                                      </Stack>
+                                    </Box>
+                                  </Collapse>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Fragment>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </TableContainer>
