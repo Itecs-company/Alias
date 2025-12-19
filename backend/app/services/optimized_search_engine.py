@@ -41,7 +41,12 @@ from app.services.search_engine import (
     ManufacturerResolver,
     normalize_manufacturer_name,
 )
-from app.services.search_providers import SearchProvider, get_default_providers
+from app.services.search_providers import (
+    SearchProvider,
+    get_default_providers,
+    get_fallback_provider,
+    get_google_provider,
+)
 
 settings = get_settings()
 
@@ -87,12 +92,23 @@ class OptimizedPartSearchEngine:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.log_recorder = SearchLogRecorder(session)
-        self.providers = get_default_providers()
+
+        # Инициализируем все доступные провайдеры
+        self.providers = get_default_providers()  # GoogleWebSearch + optional SerpAPI
+        self.google_provider = get_google_provider()  # Google Custom Search
+        self.fallback_provider = get_fallback_provider()  # OpenAI
+
         self.resolver = ManufacturerResolver(session)
         self.info_extractor = ManufacturerInfoExtractor()
 
         # Подключаем логирование к провайдерам
         self._attach_recorder()
+
+        # Логируем доступные провайдеры
+        all_providers = self._get_all_providers()
+        logger.info(f"Initialized OptimizedPartSearchEngine with {len(all_providers)} providers:")
+        for provider in all_providers:
+            logger.info(f"  - {provider.name}")
 
         # OpenAI client для анализа документов
         self.openai_client: AsyncOpenAI | None = None
@@ -109,9 +125,14 @@ class OptimizedPartSearchEngine:
 
     def _attach_recorder(self) -> None:
         """Подключает логирование к всем провайдерам."""
-        for provider in self.providers:
+        all_providers = [*self.providers, self.google_provider, self.fallback_provider]
+        for provider in all_providers:
             if hasattr(provider, "set_recorder"):
                 provider.set_recorder(self.log_recorder)
+
+    def _get_all_providers(self) -> list[SearchProvider]:
+        """Возвращает все доступные провайдеры для поиска."""
+        return [*self.providers, self.google_provider, self.fallback_provider]
 
     async def _simple_web_search(
         self,
@@ -574,7 +595,7 @@ class OptimizedPartSearchEngine:
 
         # Этап 1: Простой веб-поиск
         try:
-            candidate = await self._simple_web_search(part, self.providers)
+            candidate = await self._simple_web_search(part, self._get_all_providers())
             if candidate:
                 final_candidate = candidate
                 final_stage = "Internet"
@@ -623,7 +644,7 @@ class OptimizedPartSearchEngine:
         # Этап 2: Поиск и анализ документов (только если этап 1 не дал результатов)
         if not final_candidate:
             try:
-                doc_urls = await self._search_for_documents(part, self.providers)
+                doc_urls = await self._search_for_documents(part, self._get_all_providers())
 
                 if doc_urls:
                     stage_history.append(
