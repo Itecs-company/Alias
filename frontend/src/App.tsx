@@ -2565,16 +2565,30 @@ export function App() {
                                     variant="outlined"
                                   />
                                 </TableCell>
-                                <TableCell sx={{ maxWidth: 320 }}>
-                                  <Typography variant="body2" noWrap title={entry.query}>
+                                <TableCell sx={{ maxWidth: 400 }}>
+                                  <Typography variant="body2" noWrap>
                                     {entry.query}
                                   </Typography>
                                 </TableCell>
                                 <TableCell>{entry.status_code ?? '—'}</TableCell>
-                                <TableCell sx={{ maxWidth: 320 }}>
-                                  <Typography variant="body2" noWrap title={entry.payload ?? undefined}>
-                                    {entry.payload ?? '—'}
-                                  </Typography>
+                                <TableCell sx={{ maxWidth: 400 }}>
+                                  <Box display="flex" alignItems="center" gap={1}>
+                                    <Typography variant="body2" noWrap sx={{ flex: 1 }}>
+                                      {entry.payload ? (entry.payload.length > 100 ? entry.payload.substring(0, 100) + '...' : entry.payload) : '—'}
+                                    </Typography>
+                                    {entry.payload && (
+                                      <IconButton
+                                        size="small"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          copyToClipboard(formatJSON(entry.payload) || entry.payload)
+                                        }}
+                                        title="Копировать полный payload"
+                                      >
+                                        <ContentCopy fontSize="small" />
+                                      </IconButton>
+                                    )}
+                                  </Box>
                                 </TableCell>
                               </TableRow>
                               <TableRow>
@@ -2615,20 +2629,41 @@ export function App() {
                                         </Box>
                                         {entry.payload && (
                                           <Box>
-                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                                              Payload {entry.direction === 'response' ? '(Ответ)' : '(Запрос)'} - Полный:
-                                            </Typography>
-                                            <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper', maxHeight: 'none', overflow: 'visible' }}>
+                                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                                              <Typography variant="subtitle2" color="text.secondary">
+                                                Payload {entry.direction === 'response' ? '(Ответ)' : '(Запрос)'} - Полный:
+                                              </Typography>
+                                              <Button
+                                                size="small"
+                                                variant="outlined"
+                                                startIcon={<ContentCopy />}
+                                                onClick={() => copyToClipboard(formattedPayload || entry.payload)}
+                                              >
+                                                Копировать payload
+                                              </Button>
+                                            </Box>
+                                            <Paper
+                                              variant="outlined"
+                                              sx={{
+                                                p: 2,
+                                                bgcolor: 'background.paper',
+                                                maxHeight: 'none',
+                                                overflow: 'auto',
+                                                border: '1px solid',
+                                                borderColor: 'divider'
+                                              }}
+                                            >
                                               <Typography
                                                 variant="body2"
                                                 component="pre"
                                                 sx={{
-                                                  fontFamily: 'monospace',
+                                                  fontFamily: 'Consolas, Monaco, "Courier New", monospace',
                                                   whiteSpace: 'pre-wrap',
                                                   wordBreak: 'break-word',
                                                   margin: 0,
-                                                  fontSize: '0.85rem',
-                                                  lineHeight: 1.6
+                                                  fontSize: '0.8rem',
+                                                  lineHeight: 1.6,
+                                                  color: 'text.primary'
                                                 }}
                                               >
                                                 {formattedPayload}
