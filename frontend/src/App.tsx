@@ -1540,7 +1540,14 @@ export function App() {
               </Toolbar>
             </AppBar>
 
-            <Container maxWidth="xl" sx={{ pt: { xs: 10, md: 14 }, pb: 8 }}>
+            <Container
+              maxWidth={activePage === 'main' ? false : "xl"}
+              sx={{
+                pt: { xs: 10, md: 14 },
+                pb: 8,
+                px: activePage === 'main' ? { xs: 2, md: 3 } : undefined
+              }}
+            >
         {activePage === 'settings' ? (
           <Stack spacing={4}>
             <Paper
@@ -1916,7 +1923,8 @@ export function App() {
                   <Box
                     sx={{
                       position: tableDraggable ? 'fixed' : 'relative',
-                      width: fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width),
+                      width: tableDraggable ? 'calc(100vw - 40px)' : (fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width)),
+                      maxWidth: tableDraggable ? 'calc(100vw - 40px)' : '100%',
                       height: fitToScreen ? 'auto' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
                       minHeight: fitToScreen ? '400px' : 'auto',
                       maxHeight: fitToScreen ? 'calc(100vh - 250px)' : 'none',
@@ -2001,21 +2009,33 @@ export function App() {
                       borderRadius: 3,
                       overflowX: 'auto',
                       overflowY: 'auto',
+                      width: '100%',
                       '& .MuiTable-root': {
-                        minWidth: fitToScreen ? 'auto' : { xs: '100%', md: 'auto' }
+                        minWidth: fitToScreen ? 'auto' : '100%',
+                        width: '100%',
+                        tableLayout: fitToScreen ? 'auto' : 'auto'
                       },
                       fontSize: tableFontSize,
                       transition: 'all 0.3s ease-in-out',
+                      // Scrollbar styling
+                      '&::-webkit-scrollbar': {
+                        height: '10px',
+                        width: '10px'
+                      },
+                      '&::-webkit-scrollbar-thumb': {
+                        backgroundColor: 'rgba(0,0,0,0.3)',
+                        borderRadius: '5px',
+                        '&:hover': {
+                          backgroundColor: 'rgba(0,0,0,0.4)'
+                        }
+                      },
+                      '&::-webkit-scrollbar-track': {
+                        backgroundColor: 'rgba(0,0,0,0.05)',
+                        borderRadius: '5px'
+                      },
                       // Responsive scrolling
                       '@media (max-width: 1200px)': {
-                        overflowX: 'auto',
-                        '&::-webkit-scrollbar': {
-                          height: '8px'
-                        },
-                        '&::-webkit-scrollbar-thumb': {
-                          backgroundColor: 'rgba(0,0,0,0.2)',
-                          borderRadius: '4px'
-                        }
+                        overflowX: 'auto'
                       }
                     }}
                   >
