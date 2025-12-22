@@ -149,6 +149,16 @@ class OptimizedPartSearchEngine:
             logger.warning("No search providers available")
             return None
 
+        # Фильтруем провайдеров: НЕ используем OpenAI для веб-поиска
+        # OpenAI используется только для анализа документов (Stage 3)
+        web_providers = [p for p in providers if p.name != "openai"]
+
+        if not web_providers:
+            logger.warning("No web search providers available (OpenAI excluded)")
+            return None
+
+        logger.debug(f"Using {len(web_providers)} providers for web search (excluding OpenAI)")
+
         # Формируем простые запросы
         queries = []
         if part.manufacturer_hint:
@@ -158,17 +168,23 @@ class OptimizedPartSearchEngine:
                 queries.append(f"{part.part_number} {latin_hint}")
         queries.append(part.part_number)
 
-        logger.debug(f"Generated {len(queries)} search queries")
+        logger.debug(f"Generated {len(queries)} search queries: {queries}")
 
         # Собираем результаты с метаданными (title, snippet)
         search_results = []
-        for provider in providers:
+        for provider in web_providers:
             logger.debug(f"Using provider: {provider.name}")
             for query in queries:
                 try:
                     logger.debug(f"Searching: {query}")
                     results = await provider.search(query, max_results=5)
                     logger.debug(f"Provider {provider.name} returned {len(results)} results")
+
+                    # Логируем первый результат для отладки
+                    if results:
+                        first_result = results[0]
+                        logger.debug(f"First result: title='{first_result.get('title', '')[:80]}', link='{first_result.get('link', '')}'")
+
                     search_results.extend(results)
                     if len(search_results) >= 10:
                         break
@@ -177,7 +193,7 @@ class OptimizedPartSearchEngine:
             if len(search_results) >= 10:
                 break
 
-        logger.info(f"Collected {len(search_results)} search results from providers")
+        logger.info(f"Collected {len(search_results)} search results from {len(web_providers)} web providers")
 
         # ЭТАП 1: Анализ метаданных (title + snippet) БЕЗ скачивания страниц
         for result in search_results[:10]:
@@ -243,6 +259,13 @@ class OptimizedPartSearchEngine:
         """
         logger.info(f"Stage 2: Searching for documents for {part.part_number}")
 
+        # Фильтруем провайдеров: НЕ используем OpenAI для поиска документов
+        web_providers = [p for p in providers if p.name != "openai"]
+
+        if not web_providers:
+            logger.warning("No web providers for document search")
+            return []
+
         # Формируем запросы специально для поиска документов
         queries = []
         base_query = part.part_number
@@ -257,9 +280,11 @@ class OptimizedPartSearchEngine:
             for keyword in self.DATASHEET_KEYWORDS:
                 queries.append(f"{base_query} {keyword}")
 
+        logger.debug(f"Document search queries: {queries[:3]}...")  # Log first 3
+
         # Собираем URLs документов
         doc_urls = []
-        for provider in providers:
+        for provider in web_providers:
             for query in queries:
                 try:
                     results = await provider.search(query, max_results=3)
@@ -348,13 +373,19 @@ class OptimizedPartSearchEngine:
             else:
                 text = extract_text_from_html(data)
 
+            logger.debug(f"Extracted {len(text)} characters from document")
+
             # Оптимизация: извлекаем только релевантные части
             optimized_text = self._extract_relevant_text(text, part)
 
             # Ограничиваем размер текста для экономии токенов
             if len(optimized_text) > self.MAX_TEXT_SIZE_FOR_AI:
                 optimized_text = optimized_text[:self.MAX_TEXT_SIZE_FOR_AI]
-                logger.info(f"Text truncated to {self.MAX_TEXT_SIZE_FOR_AI} characters")
+                logger.info(f"Text truncated from {len(text)} to {self.MAX_TEXT_SIZE_FOR_AI} characters (~{self.MAX_TEXT_SIZE_FOR_AI//4} tokens)")
+            else:
+                logger.debug(f"Optimized text: {len(optimized_text)} chars (~{len(optimized_text)//4} tokens)")
+
+            logger.debug(f"Text preview: {optimized_text[:150]}...")
 
             # Оптимизированный промпт (минимум токенов)
             system_prompt = (
