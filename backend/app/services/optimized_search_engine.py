@@ -160,8 +160,8 @@ class OptimizedPartSearchEngine:
 
         logger.debug(f"Generated {len(queries)} search queries")
 
-        # Собираем URLs
-        urls = []
+        # Собираем результаты с метаданными (title, snippet)
+        search_results = []
         for provider in providers:
             logger.debug(f"Using provider: {provider.name}")
             for query in queries:
@@ -169,18 +169,26 @@ class OptimizedPartSearchEngine:
                     logger.debug(f"Searching: {query}")
                     results = await provider.search(query, max_results=5)
                     logger.debug(f"Provider {provider.name} returned {len(results)} results")
-                    urls.extend([r.get("link") for r in results if r.get("link")])
-                    if len(urls) >= 10:
+                    search_results.extend(results)
+                    if len(search_results) >= 10:
                         break
                 except Exception as e:
                     logger.error(f"Provider {provider.name} failed: {e}", exc_info=True)
-            if len(urls) >= 10:
+            if len(search_results) >= 10:
                 break
 
-        logger.info(f"Collected {len(urls)} URLs from providers")
+        logger.info(f"Collected {len(search_results)} search results from providers")
 
-        # Анализируем URLs с помощью эвристик
-        for url in urls[:5]:  # Ограничиваем до 5 URL для скорости
+        # ЭТАП 1: Анализ метаданных (title + snippet) БЕЗ скачивания страниц
+        for result in search_results[:10]:
+            url = result.get("link")
+            if not url:
+                continue
+
+            title = result.get("title", "")
+            snippet = result.get("snippet", "")
+            metadata_text = f"{title} {snippet}".lower()
+
             # Проверяем домен
             manufacturer = self._get_manufacturer_from_domain(url)
             if manufacturer:
@@ -193,17 +201,30 @@ class OptimizedPartSearchEngine:
                     alias_used=part.manufacturer_hint if part.manufacturer_hint else None
                 )
 
-            # Скачиваем и анализируем контент (только первые 2KB для скорости)
+            # Анализируем метаданные (title + snippet)
+            candidate = self._analyze_text_heuristically(metadata_text, part, url)
+            if candidate and candidate.confidence >= 0.80:
+                logger.info(f"Found manufacturer from metadata: {candidate.manufacturer}")
+                candidate.debug_info = f"Found in search result title/snippet: {title[:100]}"
+                return candidate
+
+        # ЭТАП 2: Скачиваем контент только если метаданные не дали результата
+        logger.debug("Metadata analysis failed, fetching page content...")
+        for result in search_results[:5]:  # Ограничиваем до 5 URL
+            url = result.get("link")
+            if not url:
+                continue
+
             try:
                 async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
-                    response = await client.get(url, follow_redirects=True)
+                    response = await client.get(url, follow_redirects=True, timeout=10)
                     response.raise_for_status()
 
-                    # Анализируем только начало контента
-                    text_sample = response.text[:2000]
+                    # Анализируем только начало контента (первые 3KB)
+                    text_sample = response.text[:3000]
                     candidate = self._analyze_text_heuristically(text_sample, part, url)
                     if candidate and candidate.confidence >= 0.80:
-                        logger.info(f"Found manufacturer heuristically: {candidate.manufacturer}")
+                        logger.info(f"Found manufacturer from page content: {candidate.manufacturer}")
                         return candidate
             except Exception as e:
                 logger.debug(f"Failed to fetch {url}: {e}")
@@ -437,18 +458,47 @@ class OptimizedPartSearchEngine:
         url: str
     ) -> SearchCandidate | None:
         """Анализирует текст с помощью эвристик без AI."""
-        # Проверяем известных производителей в тексте
         text_lower = text.lower()
 
+        # Нормализуем артикул для сравнения (убираем пробелы, дефисы)
+        part_number_normalized = part.part_number.replace(" ", "").replace("-", "").replace("_", "").lower()
+
+        # Проверяем известных производителей в тексте
         for known_mfr in KNOWN_MANUFACTURERS:
             if known_mfr.lower() in text_lower:
-                # Проверяем, что артикул тоже упоминается рядом
+                # Проверяем артикул в разных форматах
+                # 1. Точное совпадение
                 if part.part_number.lower() in text_lower:
+                    return SearchCandidate(
+                        manufacturer=known_mfr,
+                        confidence=0.90,
+                        source_url=url,
+                        debug_info=f"Found '{known_mfr}' with exact part number match",
+                        alias_used=part.manufacturer_hint
+                    )
+
+                # 2. Нормализованное совпадение (без пробелов/дефисов)
+                text_normalized = text_lower.replace(" ", "").replace("-", "").replace("_", "")
+                if part_number_normalized in text_normalized:
                     return SearchCandidate(
                         manufacturer=known_mfr,
                         confidence=0.85,
                         source_url=url,
-                        debug_info="Found known manufacturer in text with part number",
+                        debug_info=f"Found '{known_mfr}' with normalized part number match",
+                        alias_used=part.manufacturer_hint
+                    )
+
+        # Если manufacturer_hint указан, проверяем его в тексте
+        if part.manufacturer_hint:
+            hint_lower = part.manufacturer_hint.lower()
+            if hint_lower in text_lower:
+                # Проверяем совпадение артикула
+                if part.part_number.lower() in text_lower or part_number_normalized in text_lower.replace(" ", "").replace("-", ""):
+                    return SearchCandidate(
+                        manufacturer=part.manufacturer_hint,
+                        confidence=0.80,
+                        source_url=url,
+                        debug_info=f"Found manufacturer hint '{part.manufacturer_hint}' with part number",
                         alias_used=part.manufacturer_hint
                     )
 

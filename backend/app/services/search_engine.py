@@ -134,6 +134,11 @@ DOMAIN_MANUFACTURER_HINTS: dict[str, str] = {
     "semtech.com": "Semtech",
     "sibeco.net": "Sibeco",
     "sibeco-russia.ru": "Sibeco",
+    # Measurement instrument manufacturers
+    "testo.com": "Testo",
+    "testo.ru": "Testo",
+    "testo.co.uk": "Testo",
+    "testodirect.co.uk": "Testo",
 }
 
 KNOWN_MANUFACTURERS: list[str] = [
@@ -156,6 +161,11 @@ KNOWN_MANUFACTURERS: list[str] = [
     "Samsung",
     "Samsung Semiconductor",
     "Sibeco",
+    # Measurement instrument manufacturers
+    "Testo",
+    "Fluke",
+    "Keysight",
+    "Agilent",
 
     # Русские названия
     "СИБЕКО",
