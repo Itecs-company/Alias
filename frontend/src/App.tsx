@@ -717,6 +717,7 @@ export function App() {
     q: ''
   })
   const [expandedLogIds, setExpandedLogIds] = useState<Set<number>>(new Set())
+  const [expandedTableRows, setExpandedTableRows] = useState<Set<number>>(new Set())
   const [autoRefreshLogs, setAutoRefreshLogs] = useState(false)
   const [refreshInterval, setRefreshInterval] = useState(5000) // 5 seconds default
   const logsTableRef = useRef<HTMLDivElement>(null)
@@ -746,7 +747,10 @@ export function App() {
       whatProduces: record.what_produces ?? '—',
       website: record.website ?? '—',
       manufacturerAliases: record.manufacturer_aliases ?? '—',
-      country: record.country ?? '—'
+      country: record.country ?? '—',
+      debugLog: record.debug_log ?? null,
+      stageHistory: record.stage_history ?? null,
+      searchStage: record.search_stage ?? null
     }))
   }, [history])
   const filteredTableData = useMemo(() => {
@@ -1536,7 +1540,14 @@ export function App() {
               </Toolbar>
             </AppBar>
 
-            <Container maxWidth="xl" sx={{ pt: { xs: 10, md: 14 }, pb: 8 }}>
+            <Container
+              maxWidth={activePage === 'main' ? false : "xl"}
+              sx={{
+                pt: { xs: 10, md: 14 },
+                pb: 8,
+                px: activePage === 'main' ? { xs: 2, md: 3 } : undefined
+              }}
+            >
         {activePage === 'settings' ? (
           <Stack spacing={4}>
             <Paper
@@ -1912,8 +1923,11 @@ export function App() {
                   <Box
                     sx={{
                       position: tableDraggable ? 'fixed' : 'relative',
-                      width: fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width),
-                      height: fitToScreen ? 'calc(100vh - 350px)' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
+                      width: tableDraggable ? 'calc(100vw - 40px)' : (fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width)),
+                      maxWidth: tableDraggable ? 'calc(100vw - 40px)' : '100%',
+                      height: fitToScreen ? 'auto' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
+                      minHeight: fitToScreen ? '400px' : 'auto',
+                      maxHeight: fitToScreen ? 'calc(100vh - 250px)' : 'none',
                       resize: !fitToScreen && !fullscreenMode && !tableDraggable ? 'both' : 'none',
                       overflow: 'auto',
                       border: tableDraggable ? '3px solid' : (!fitToScreen && !fullscreenMode ? '2px solid' : 'none'),
@@ -1924,6 +1938,15 @@ export function App() {
                       backgroundColor: 'background.paper',
                       cursor: tableDraggable ? 'default' : 'auto',
                       transition: tableDraggable ? 'none' : 'all 0.3s ease-in-out',
+                      // Responsive adjustments
+                      '@media (max-width: 1200px)': {
+                        width: fitToScreen ? '100%' : 'auto',
+                        maxWidth: '100%'
+                      },
+                      '@media (max-width: 768px)': {
+                        minHeight: '300px',
+                        fontSize: '0.875rem'
+                      },
                       '&::-webkit-resizer': {
                         background: 'linear-gradient(135deg, transparent 50%, currentColor 50%)',
                         color: 'primary.main'
@@ -1984,30 +2007,66 @@ export function App() {
                       maxHeight: '100%',
                       height: '100%',
                       borderRadius: 3,
-                      overflowX: fitToScreen ? 'hidden' : 'auto',
-                      overflowY: fitToScreen ? 'hidden' : 'auto',
+                      overflowX: 'auto',
+                      overflowY: 'auto',
+                      width: '100%',
                       '& .MuiTable-root': {
-                        minWidth: fitToScreen ? 'auto' : { xs: 800, md: 'auto' }
+                        minWidth: fitToScreen ? 'auto' : '100%',
+                        width: '100%',
+                        tableLayout: fitToScreen ? 'auto' : 'auto'
                       },
                       fontSize: tableFontSize,
-                      transition: 'all 0.3s ease-in-out'
+                      transition: 'all 0.3s ease-in-out',
+                      // Scrollbar styling
+                      '&::-webkit-scrollbar': {
+                        height: '10px',
+                        width: '10px'
+                      },
+                      '&::-webkit-scrollbar-thumb': {
+                        backgroundColor: 'rgba(0,0,0,0.3)',
+                        borderRadius: '5px',
+                        '&:hover': {
+                          backgroundColor: 'rgba(0,0,0,0.4)'
+                        }
+                      },
+                      '&::-webkit-scrollbar-track': {
+                        backgroundColor: 'rgba(0,0,0,0.05)',
+                        borderRadius: '5px'
+                      },
+                      // Responsive scrolling
+                      '@media (max-width: 1200px)': {
+                        overflowX: 'auto'
+                      }
                     }}
                   >
                   <Table
                     stickyHeader={!fitToScreen}
                     size={tableSize}
                     sx={{
-                      tableLayout: fitToScreen ? 'auto' : 'fixed',
-                      width: fitToScreen ? '100%' : 'auto',
-                      height: fitToScreen ? '100%' : 'auto',
+                      tableLayout: fitToScreen ? 'auto' : 'auto',
+                      width: '100%',
+                      minWidth: fitToScreen ? 'auto' : '1200px',
                       '& .MuiTableCell-root': {
                         fontSize: tableFontSize,
                         ...(fitToScreen && {
-                          padding: '4px 8px',
+                          padding: '6px 8px',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis'
                         })
+                      },
+                      // Responsive cell sizing
+                      '@media (max-width: 1200px)': {
+                        '& .MuiTableCell-root': {
+                          fontSize: '0.875rem',
+                          padding: '8px'
+                        }
+                      },
+                      '@media (max-width: 768px)': {
+                        '& .MuiTableCell-root': {
+                          fontSize: '0.8rem',
+                          padding: '6px'
+                        }
                       }
                     }}
                   >
@@ -2079,144 +2138,314 @@ export function App() {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {filteredTableData.map((row, rowIndex) => (
-                        <TableRow key={row.key} hover sx={{ height: fitToScreen ? 'auto' : rowHeight }}>
-                          <TableCell
-                            padding="checkbox"
-                            sx={{
-                              width: fitToScreen ? 'auto' : columnWidths.checkbox,
-                              height: fitToScreen ? 'auto' : rowHeight,
-                              position: 'relative',
-                              userSelect: rowResizer.isResizing ? 'none' : 'auto'
-                            }}
-                          >
-                            <Checkbox
-                              checked={selectedIds.has(row.id)}
-                              onChange={(e) => {
-                                setSelectedIds(prev => {
-                                  const next = new Set(prev)
-                                  if (e.target.checked) {
-                                    next.add(row.id)
-                                  } else {
-                                    next.delete(row.id)
-                                  }
-                                  return next
-                                })
-                              }}
-                            />
-                            {!fitToScreen && rowIndex === 0 && (
-                              <Box
-                                onMouseDown={(e) => rowResizer.handleMouseDown(e, rowHeight)}
+                      {filteredTableData.map((row, rowIndex) => {
+                        const isExpanded = expandedTableRows.has(row.id)
+                        const hasLogs = row.debugLog || row.stageHistory
+                        return (
+                          <Fragment key={row.key}>
+                            <TableRow hover sx={{ height: fitToScreen ? 'auto' : rowHeight }}>
+                              <TableCell
+                                padding="checkbox"
                                 sx={{
-                                  position: 'absolute',
-                                  bottom: 0,
-                                  left: 0,
-                                  right: 0,
-                                  height: 5,
-                                  cursor: 'row-resize',
-                                  backgroundColor: rowResizer.isResizing ? 'primary.main' : 'transparent',
-                                  '&:hover': {
-                                    backgroundColor: 'primary.light'
-                                  },
-                                  zIndex: 1
+                                  width: fitToScreen ? 'auto' : columnWidths.checkbox,
+                                  height: fitToScreen ? 'auto' : rowHeight,
+                                  position: 'relative',
+                                  userSelect: rowResizer.isResizing ? 'none' : 'auto'
                                 }}
-                              />
-                            )}
-                          </TableCell>
-                          {/* Известные данные */}
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.article, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.article}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.submitted, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.submitted}
-                          </TableCell>
-                          {/* Данные от поиска */}
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturer, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.manufacturer}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.alias, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.alias}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.match, height: fitToScreen ? 'auto' : rowHeight }}>
-                            {renderMatchChip(row.matchStatus, row.matchConfidence)}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.confidence, height: fitToScreen ? 'auto' : rowHeight }}>
-                            {row.confidence ? `${(row.confidence * 100).toFixed(1)}%` : '—'}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.source, height: fitToScreen ? 'auto' : rowHeight }}>
-                            {row.sourceUrl ? (
-                              <Tooltip title={row.sourceUrl}>
-                                <Box
-                                  component="a"
-                                  href={row.sourceUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  sx={{
-                                    color: 'secondary.main',
-                                    textDecoration: 'none',
-                                    '&:hover': { textDecoration: 'underline' },
-                                    display: 'block',
-                                    maxWidth: 200,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap'
-                                  }}
-                                >
-                                  {row.sourceUrl}
-                                </Box>
-                              </Tooltip>
-                            ) : (
-                              '—'
-                            )}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.whatProduces, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.whatProduces}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.website, height: fitToScreen ? 'auto' : rowHeight }}>
-                            {row.website !== '—' ? (
-                              <Tooltip title={row.website}>
-                                <Box
-                                  component="a"
-                                  href={row.website}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  sx={{
-                                    color: 'secondary.main',
-                                    textDecoration: 'none',
-                                    '&:hover': { textDecoration: 'underline' },
-                                    display: 'block',
-                                    maxWidth: fitToScreen ? 'none' : 150,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap'
-                                  }}
-                                >
-                                  {row.website}
-                                </Box>
-                              </Tooltip>
-                            ) : (
-                              '—'
-                            )}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturerAliases, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.manufacturerAliases}
-                          </TableCell>
-                          <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.country, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row.country}
-                          </TableCell>
-                          <TableCell align="center" sx={{ width: fitToScreen ? 'auto' : columnWidths.actions, height: fitToScreen ? 'auto' : rowHeight }}>
-                            <Tooltip title="Удалить строку">
-                              <IconButton
-                                size="small"
-                                color="error"
-                                onClick={() => handleDeletePartRow(row.id)}
                               >
-                                <DeleteForever fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                                <Stack direction="row" alignItems="center" spacing={0.5}>
+                                  {hasLogs && (
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => {
+                                        setExpandedTableRows(prev => {
+                                          const next = new Set(prev)
+                                          if (next.has(row.id)) {
+                                            next.delete(row.id)
+                                          } else {
+                                            next.add(row.id)
+                                          }
+                                          return next
+                                        })
+                                      }}
+                                    >
+                                      {isExpanded ? <KeyboardArrowUp fontSize="small" /> : <KeyboardArrowDown fontSize="small" />}
+                                    </IconButton>
+                                  )}
+                                  <Checkbox
+                                    checked={selectedIds.has(row.id)}
+                                    onChange={(e) => {
+                                      setSelectedIds(prev => {
+                                        const next = new Set(prev)
+                                        if (e.target.checked) {
+                                          next.add(row.id)
+                                        } else {
+                                          next.delete(row.id)
+                                        }
+                                        return next
+                                      })
+                                    }}
+                                  />
+                                </Stack>
+                                {!fitToScreen && rowIndex === 0 && (
+                                  <Box
+                                    onMouseDown={(e) => rowResizer.handleMouseDown(e, rowHeight)}
+                                    sx={{
+                                      position: 'absolute',
+                                      bottom: 0,
+                                      left: 0,
+                                      right: 0,
+                                      height: 5,
+                                      cursor: 'row-resize',
+                                      backgroundColor: rowResizer.isResizing ? 'primary.main' : 'transparent',
+                                      '&:hover': {
+                                        backgroundColor: 'primary.light'
+                                      },
+                                      zIndex: 1
+                                    }}
+                                  />
+                                )}
+                              </TableCell>
+                              {/* Известные данные */}
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.article, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.article}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.submitted, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.submitted}
+                              </TableCell>
+                              {/* Данные от поиска */}
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturer, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.manufacturer}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.alias, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.alias}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.match, height: fitToScreen ? 'auto' : rowHeight }}>
+                                {renderMatchChip(row.matchStatus, row.matchConfidence)}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.confidence, height: fitToScreen ? 'auto' : rowHeight }}>
+                                {row.confidence ? `${(row.confidence * 100).toFixed(1)}%` : '—'}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.source, height: fitToScreen ? 'auto' : rowHeight }}>
+                                {row.sourceUrl ? (
+                                  <Tooltip title={row.sourceUrl}>
+                                    <Box
+                                      component="a"
+                                      href={row.sourceUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      sx={{
+                                        color: 'secondary.main',
+                                        textDecoration: 'none',
+                                        '&:hover': { textDecoration: 'underline' },
+                                        display: 'block',
+                                        maxWidth: 200,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                    >
+                                      {row.sourceUrl}
+                                    </Box>
+                                  </Tooltip>
+                                ) : (
+                                  '—'
+                                )}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.whatProduces, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.whatProduces}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.website, height: fitToScreen ? 'auto' : rowHeight }}>
+                                {row.website !== '—' ? (
+                                  <Tooltip title={row.website}>
+                                    <Box
+                                      component="a"
+                                      href={row.website}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      sx={{
+                                        color: 'secondary.main',
+                                        textDecoration: 'none',
+                                        '&:hover': { textDecoration: 'underline' },
+                                        display: 'block',
+                                        maxWidth: fitToScreen ? 'none' : 150,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                    >
+                                      {row.website}
+                                    </Box>
+                                  </Tooltip>
+                                ) : (
+                                  '—'
+                                )}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.manufacturerAliases, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.manufacturerAliases}
+                              </TableCell>
+                              <TableCell sx={{ width: fitToScreen ? 'auto' : columnWidths.country, height: fitToScreen ? 'auto' : rowHeight, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.country}
+                              </TableCell>
+                              <TableCell align="center" sx={{ width: fitToScreen ? 'auto' : columnWidths.actions, height: fitToScreen ? 'auto' : rowHeight }}>
+                                <Tooltip title="Удалить строку">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => handleDeletePartRow(row.id)}
+                                  >
+                                    <DeleteForever fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </TableCell>
+                            </TableRow>
+                            {hasLogs && (
+                              <TableRow>
+                                <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={13}>
+                                  <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                                    <Box sx={{
+                                      margin: { xs: 1, md: 2 },
+                                      p: { xs: 1.5, md: 2 },
+                                      bgcolor: 'background.default',
+                                      borderRadius: 2,
+                                      '@media (max-width: 768px)': {
+                                        fontSize: '0.875rem'
+                                      }
+                                    }}>
+                                      <Stack spacing={2}>
+                                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                                          <Typography variant="h6" gutterBottom component="div">
+                                            Детали поиска
+                                          </Typography>
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => {
+                                              const logText = JSON.stringify({
+                                                article: row.article,
+                                                search_stage: row.searchStage,
+                                                debug_log: row.debugLog,
+                                                stage_history: row.stageHistory
+                                              }, null, 2)
+                                              navigator.clipboard.writeText(logText)
+                                              setSnackbar('Логи скопированы в буфер обмена')
+                                            }}
+                                          >
+                                            <ContentCopy fontSize="small" />
+                                          </IconButton>
+                                        </Box>
+                                        {row.searchStage && (
+                                          <Box>
+                                            <Typography variant="subtitle2" color="text.secondary">
+                                              Этап поиска
+                                            </Typography>
+                                            <Typography variant="body2">{row.searchStage}</Typography>
+                                          </Box>
+                                        )}
+                                        {row.stageHistory && row.stageHistory.length > 0 && (
+                                          <Box>
+                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                              История этапов
+                                            </Typography>
+                                            <Stack spacing={1}>
+                                              {row.stageHistory.map((stage, idx) => (
+                                                <Paper key={idx} sx={{
+                                                  p: { xs: 1, md: 1.5 },
+                                                  bgcolor: 'action.hover',
+                                                  '@media (max-width: 768px)': {
+                                                    fontSize: '0.85rem'
+                                                  }
+                                                }}>
+                                                  <Stack spacing={0.5}>
+                                                    <Box display="flex" gap={1} alignItems="center" flexWrap="wrap">
+                                                      <Chip
+                                                        label={stage.name}
+                                                        size="small"
+                                                        color="primary"
+                                                        variant="outlined"
+                                                        sx={{
+                                                          '@media (max-width: 768px)': {
+                                                            fontSize: '0.75rem',
+                                                            height: '24px'
+                                                          }
+                                                        }}
+                                                      />
+                                                      <Chip
+                                                        label={stageStatusDescription[stage.status] || stage.status}
+                                                        size="small"
+                                                        color={stageStatusChipColor[stage.status] || 'default'}
+                                                        sx={{
+                                                          '@media (max-width: 768px)': {
+                                                            fontSize: '0.75rem',
+                                                            height: '24px'
+                                                          }
+                                                        }}
+                                                      />
+                                                      {stage.provider && (
+                                                        <Chip
+                                                          label={stage.provider}
+                                                          size="small"
+                                                          variant="outlined"
+                                                          sx={{
+                                                            '@media (max-width: 768px)': {
+                                                              fontSize: '0.75rem',
+                                                              height: '24px'
+                                                            }
+                                                          }}
+                                                        />
+                                                      )}
+                                                    </Box>
+                                                    {stage.confidence !== null && stage.confidence !== undefined && (
+                                                      <Typography variant="caption" color="text.secondary">
+                                                        Уверенность: {(stage.confidence * 100).toFixed(1)}%
+                                                      </Typography>
+                                                    )}
+                                                    {stage.urls_considered !== undefined && (
+                                                      <Typography variant="caption" color="text.secondary">
+                                                        URLs проверено: {stage.urls_considered}
+                                                      </Typography>
+                                                    )}
+                                                    {stage.message && (
+                                                      <Typography variant="caption" color="text.secondary">
+                                                        {stage.message}
+                                                      </Typography>
+                                                    )}
+                                                  </Stack>
+                                                </Paper>
+                                              ))}
+                                            </Stack>
+                                          </Box>
+                                        )}
+                                        {row.debugLog && (
+                                          <Box>
+                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                              Debug Log (полный)
+                                            </Typography>
+                                            <Paper
+                                              sx={{
+                                                p: 2,
+                                                bgcolor: 'action.hover',
+                                                maxHeight: 'none',
+                                                overflow: 'visible',
+                                                fontFamily: 'monospace',
+                                                fontSize: '0.85rem',
+                                                whiteSpace: 'pre-wrap',
+                                                wordBreak: 'break-word',
+                                                lineHeight: 1.6
+                                              }}
+                                            >
+                                              {row.debugLog}
+                                            </Paper>
+                                          </Box>
+                                        )}
+                                      </Stack>
+                                    </Box>
+                                  </Collapse>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Fragment>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -2356,16 +2585,30 @@ export function App() {
                                     variant="outlined"
                                   />
                                 </TableCell>
-                                <TableCell sx={{ maxWidth: 320 }}>
-                                  <Typography variant="body2" noWrap title={entry.query}>
+                                <TableCell sx={{ maxWidth: 400 }}>
+                                  <Typography variant="body2" noWrap>
                                     {entry.query}
                                   </Typography>
                                 </TableCell>
                                 <TableCell>{entry.status_code ?? '—'}</TableCell>
-                                <TableCell sx={{ maxWidth: 320 }}>
-                                  <Typography variant="body2" noWrap title={entry.payload ?? undefined}>
-                                    {entry.payload ?? '—'}
-                                  </Typography>
+                                <TableCell sx={{ maxWidth: 400 }}>
+                                  <Box display="flex" alignItems="center" gap={1}>
+                                    <Typography variant="body2" noWrap sx={{ flex: 1 }}>
+                                      {entry.payload ? (entry.payload.length > 100 ? entry.payload.substring(0, 100) + '...' : entry.payload) : '—'}
+                                    </Typography>
+                                    {entry.payload && (
+                                      <IconButton
+                                        size="small"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          copyToClipboard(formatJSON(entry.payload) || entry.payload)
+                                        }}
+                                        title="Копировать полный payload"
+                                      >
+                                        <ContentCopy fontSize="small" />
+                                      </IconButton>
+                                    )}
+                                  </Box>
                                 </TableCell>
                               </TableRow>
                               <TableRow>
@@ -2406,19 +2649,41 @@ export function App() {
                                         </Box>
                                         {entry.payload && (
                                           <Box>
-                                            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                                              Payload {entry.direction === 'response' ? '(Ответ)' : '(Запрос)'}:
-                                            </Typography>
-                                            <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper', maxHeight: 400, overflow: 'auto' }}>
+                                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                                              <Typography variant="subtitle2" color="text.secondary">
+                                                Payload {entry.direction === 'response' ? '(Ответ)' : '(Запрос)'} - Полный:
+                                              </Typography>
+                                              <Button
+                                                size="small"
+                                                variant="outlined"
+                                                startIcon={<ContentCopy />}
+                                                onClick={() => copyToClipboard(formattedPayload || entry.payload)}
+                                              >
+                                                Копировать payload
+                                              </Button>
+                                            </Box>
+                                            <Paper
+                                              variant="outlined"
+                                              sx={{
+                                                p: 2,
+                                                bgcolor: 'background.paper',
+                                                maxHeight: 'none',
+                                                overflow: 'auto',
+                                                border: '1px solid',
+                                                borderColor: 'divider'
+                                              }}
+                                            >
                                               <Typography
                                                 variant="body2"
                                                 component="pre"
                                                 sx={{
-                                                  fontFamily: 'monospace',
+                                                  fontFamily: 'Consolas, Monaco, "Courier New", monospace',
                                                   whiteSpace: 'pre-wrap',
                                                   wordBreak: 'break-word',
                                                   margin: 0,
-                                                  fontSize: '0.85rem'
+                                                  fontSize: '0.8rem',
+                                                  lineHeight: 1.6,
+                                                  color: 'text.primary'
                                                 }}
                                               >
                                                 {formattedPayload}

@@ -28,6 +28,7 @@ from app.schemas.part import (
 from app.services.exporter import export_parts_to_excel, export_parts_to_pdf
 from app.services.importer import import_parts_from_excel
 from app.services.search_engine import PartSearchEngine
+from app.services.optimized_search_engine import OptimizedPartSearchEngine
 from passlib.exc import UnknownHashError
 
 from app.core.security import create_access_token, get_password_hash, verify_password
@@ -209,9 +210,28 @@ async def create_part(part: PartCreate, session: AsyncSession = Depends(get_db))
 
 
 @protected_router.post("/search", response_model=SearchResponse)
-async def search_parts(request: SearchRequest, session: AsyncSession = Depends(get_db)) -> SearchResponse:
-    engine = PartSearchEngine(session)
-    results = await engine.search_many(request.items, debug=request.debug, stages=request.stages)
+async def search_parts(
+    request: SearchRequest,
+    session: AsyncSession = Depends(get_db),
+    use_optimized: bool = True
+) -> SearchResponse:
+    """
+    Поиск производителей по артикулам.
+
+    Args:
+        request: Запрос с артикулами для поиска
+        session: Сессия БД
+        use_optimized: Использовать оптимизированный движок (по умолчанию True)
+    """
+    if use_optimized:
+        # Используем новый оптимизированный движок
+        engine = OptimizedPartSearchEngine(session)
+        results = await engine.search_many(request.items, debug=request.debug)
+    else:
+        # Старый движок (для совместимости)
+        engine = PartSearchEngine(session)
+        results = await engine.search_many(request.items, debug=request.debug, stages=request.stages)
+
     await session.commit()
     return SearchResponse(results=results, debug=request.debug)
 
