@@ -1926,14 +1926,14 @@ export function App() {
                   <Box
                     sx={{
                       position: tableDraggable ? 'fixed' : 'relative',
-                      width: tableDraggable ? 'calc(100vw - 40px)' : (fitToScreen ? '100%' : (fullscreenMode ? '100%' : tableContainerSize.width)),
-                      maxWidth: tableDraggable ? 'calc(100vw - 40px)' : '100%',
-                      height: fitToScreen ? 'auto' : (fullscreenMode ? 'calc(100vh - 200px)' : tableContainerSize.height),
-                      minHeight: fitToScreen ? '400px' : 'auto',
-                      maxHeight: fitToScreen ? 'calc(100vh - 250px)' : 'none',
-                      resize: !fitToScreen && !fullscreenMode && !tableDraggable ? 'both' : 'none',
-                      overflow: 'auto',
-                      border: tableDraggable ? '3px solid' : (!fitToScreen && !fullscreenMode ? '2px solid' : 'none'),
+                      width: tableDraggable ? 'calc(100vw - 40px)' : '100%',
+                      maxWidth: '100%',
+                      height: 'auto',
+                      minHeight: 'auto',
+                      maxHeight: 'none',
+                      resize: 'none',
+                      overflow: 'visible',
+                      border: tableDraggable ? '3px solid' : 'none',
                       borderColor: tableDraggable ? 'primary.main' : 'primary.light',
                       borderRadius: 3,
                       boxShadow: tableDraggable ? '0 8px 32px rgba(0,0,0,0.3)' : 'none',
@@ -1943,25 +1943,12 @@ export function App() {
                       transition: tableDraggable ? 'none' : 'all 0.3s ease-in-out',
                       // Responsive adjustments
                       '@media (max-width: 1200px)': {
-                        width: fitToScreen ? '100%' : 'auto',
+                        width: '100%',
                         maxWidth: '100%'
                       },
                       '@media (max-width: 768px)': {
-                        minHeight: '300px',
+                        minHeight: 'auto',
                         fontSize: '0.875rem'
-                      },
-                      '&::-webkit-resizer': {
-                        background: 'linear-gradient(135deg, transparent 50%, currentColor 50%)',
-                        color: 'primary.main'
-                      }
-                    }}
-                    onMouseUp={(e) => {
-                      if (!fitToScreen && !fullscreenMode && !tableDraggable) {
-                        const target = e.currentTarget
-                        setTableContainerSize({
-                          width: target.offsetWidth,
-                          height: target.offsetHeight
-                        })
                       }
                     }}
                   >
@@ -2007,56 +1994,33 @@ export function App() {
                     component={Paper}
                     variant="outlined"
                     sx={{
-                      maxHeight: '100%',
-                      height: '100%',
+                      maxHeight: 'none',
+                      height: 'auto',
                       borderRadius: 3,
-                      overflowX: 'auto',
-                      overflowY: 'auto',
+                      overflowX: 'visible',
+                      overflowY: 'visible',
                       width: '100%',
                       '& .MuiTable-root': {
-                        minWidth: fitToScreen ? 'auto' : '100%',
+                        minWidth: 'auto',
                         width: '100%',
-                        tableLayout: fitToScreen ? 'auto' : 'auto'
+                        tableLayout: 'auto'
                       },
                       fontSize: tableFontSize,
-                      transition: 'all 0.3s ease-in-out',
-                      // Scrollbar styling
-                      '&::-webkit-scrollbar': {
-                        height: '10px',
-                        width: '10px'
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        backgroundColor: 'rgba(0,0,0,0.3)',
-                        borderRadius: '5px',
-                        '&:hover': {
-                          backgroundColor: 'rgba(0,0,0,0.4)'
-                        }
-                      },
-                      '&::-webkit-scrollbar-track': {
-                        backgroundColor: 'rgba(0,0,0,0.05)',
-                        borderRadius: '5px'
-                      },
-                      // Responsive scrolling
-                      '@media (max-width: 1200px)': {
-                        overflowX: 'auto'
-                      }
+                      transition: 'all 0.3s ease-in-out'
                     }}
                   >
                   <Table
-                    stickyHeader={!fitToScreen}
+                    stickyHeader={false}
                     size={tableSize}
                     sx={{
-                      tableLayout: fitToScreen ? 'auto' : 'auto',
+                      tableLayout: 'auto',
                       width: '100%',
-                      minWidth: fitToScreen ? 'auto' : '1200px',
+                      minWidth: 'auto',
                       '& .MuiTableCell-root': {
                         fontSize: tableFontSize,
-                        ...(fitToScreen && {
-                          padding: '6px 8px',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis'
-                        })
+                        padding: '6px 8px',
+                        whiteSpace: 'normal',
+                        wordWrap: 'break-word'
                       },
                       // Responsive cell sizing
                       '@media (max-width: 1200px)': {
