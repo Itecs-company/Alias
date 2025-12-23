@@ -413,6 +413,52 @@ KEYWORD_HINTS = (
     "microelectronics",
 )
 
+# Паттерны для фильтрации нерелевантных результатов
+BLACKLIST_DOMAINS = {
+    "researchgate.net",
+    "academia.edu",
+    "scholar.google.com",
+    "patents.google.com",
+    "arxiv.org",
+    "sciencedirect.com",
+    "springer.com",
+    "ieee.org",
+    "acm.org",
+}
+
+BLACKLIST_KEYWORDS = (
+    "patent",
+    "research paper",
+    "scientific article",
+    "conference",
+    "journal",
+    "thesis",
+    "dissertation",
+    "abstract",
+    "citation",
+    "academic",
+)
+
+# Приоритетные домены для компонентов
+PRIORITY_DOMAINS = (
+    "datasheet",
+    "pdf",
+    "manufacturer",
+    "digikey",
+    "mouser",
+    "farnell",
+    "rs-online",
+    "arrow",
+)
+
+
+@dataclass
+class SearchResultItem:
+    """Результат поиска с метаданными"""
+    url: str
+    title: str | None = None
+    snippet: str | None = None
+
 
 @dataclass
 class Candidate:
@@ -501,16 +547,121 @@ class PartSearchEngine:
 
     async def _search_with_provider(
         self, provider: SearchProvider, query: str, *, max_results: int = 5
-    ) -> list[str]:
+    ) -> list[SearchResultItem]:
         try:
             results = await provider.search(query, max_results=max_results)
         except Exception:  # noqa: BLE001
             logger.exception("Provider %s failed", provider.name)
             return []
-        return [item.get("link") for item in results if item.get("link")]
 
-    async def _collect_urls(self, part: PartBase, providers: list[SearchProvider]) -> list[str]:
-        # Формируем запросы от простых к специфичным
+        search_results = []
+        for item in results:
+            url = item.get("link")
+            if url:
+                search_results.append(SearchResultItem(
+                    url=url,
+                    title=item.get("title"),
+                    snippet=item.get("snippet")
+                ))
+        return search_results
+
+    def _is_relevant_result(self, result: SearchResultItem, part: PartBase) -> bool:
+        """Фильтрует нерелевантные результаты (академические статьи, патенты и т.д.)"""
+        url_lower = result.url.lower()
+
+        # Проверка черного списка доменов
+        try:
+            hostname = urlparse(result.url).hostname
+            if hostname:
+                hostname_lower = hostname.lower()
+                for blacklist_domain in BLACKLIST_DOMAINS:
+                    if blacklist_domain in hostname_lower:
+                        logger.debug(f"Filtered out blacklisted domain: {hostname}")
+                        return False
+        except ValueError:
+            pass
+
+        # Проверка черного списка ключевых слов в title и snippet
+        text_to_check = " ".join(filter(None, [result.title, result.snippet])).lower()
+        for keyword in BLACKLIST_KEYWORDS:
+            if keyword in text_to_check:
+                logger.debug(f"Filtered out result with blacklisted keyword '{keyword}': {result.url}")
+                return False
+
+        return True
+
+    def _analyze_metadata(self, result: SearchResultItem, part: PartBase) -> Candidate | None:
+        """
+        Анализирует метаданные (домен, title, snippet) БЕЗ скачивания страницы.
+        Это экономит трафик и время.
+        """
+        # 1. Приоритет: анализ домена
+        domain_manufacturer = self._manufacturer_from_domain(result.url)
+        if domain_manufacturer:
+            # Проверяем, упоминается ли артикул в метаданных
+            part_variants = normalize_part_number(part.part_number)
+            text_to_check = " ".join(filter(None, [result.title, result.snippet])).lower()
+
+            # Ищем любой вариант артикула в метаданных
+            part_found = any(variant.lower() in text_to_check for variant in part_variants)
+
+            if part_found or part.manufacturer_hint:
+                # Если артикул найден или есть подсказка производителя
+                alias = self._alias_if_similar(part, domain_manufacturer)
+                host = urlparse(result.url).hostname or result.url
+                return Candidate(
+                    manufacturer=domain_manufacturer,
+                    alias_used=alias,
+                    confidence=0.96,
+                    source_url=result.url,
+                    debug_log=f"Определено по домену {host} (метаданные, 0 байт трафика)",
+                )
+
+        # 2. Анализ title и snippet на наличие известных производителей
+        text_to_check = " ".join(filter(None, [result.title, result.snippet]))
+        if not text_to_check:
+            return None
+
+        known_manufacturer = self._manufacturer_from_known_text(text_to_check)
+        if known_manufacturer:
+            # Проверяем наличие артикула в метаданных
+            part_variants = normalize_part_number(part.part_number)
+            text_lower = text_to_check.lower()
+            part_found = any(variant.lower() in text_lower for variant in part_variants)
+
+            if part_found:
+                alias = self._alias_if_similar(part, known_manufacturer)
+                return Candidate(
+                    manufacturer=known_manufacturer,
+                    alias_used=alias,
+                    confidence=0.88,
+                    source_url=result.url,
+                    debug_log="Найдено в метаданных поиска (title/snippet, 0 байт трафика)",
+                )
+
+        # 3. Если есть подсказка производителя, проверяем её в метаданных
+        if part.manufacturer_hint:
+            text_lower = text_to_check.lower()
+            hint_lower = part.manufacturer_hint.lower()
+
+            # Проверяем наличие и производителя, и артикула
+            part_variants = normalize_part_number(part.part_number)
+            part_found = any(variant.lower() in text_lower for variant in part_variants)
+            manufacturer_found = hint_lower in text_lower
+
+            if part_found and manufacturer_found:
+                return Candidate(
+                    manufacturer=part.manufacturer_hint,
+                    alias_used=part.manufacturer_hint,
+                    confidence=0.82,
+                    source_url=result.url,
+                    debug_log="Совпадение подсказки оператора в метаданных (0 байт трафика)",
+                )
+
+        return None
+
+    async def _collect_search_results(self, part: PartBase, providers: list[SearchProvider]) -> list[SearchResultItem]:
+        """Собирает результаты поиска с метаданными (title, snippet)"""
         queries = []
 
         # Генерируем варианты написания артикула
@@ -521,30 +672,25 @@ class PartSearchEngine:
         latin_hint = None
         if part.manufacturer_hint:
             latin_hint = normalize_manufacturer_name(part.manufacturer_hint)
-            # Если нормализация дала другое название, значит была кириллица
             if latin_hint != part.manufacturer_hint:
                 logger.debug(f"Normalized manufacturer hint: {part.manufacturer_hint} -> {latin_hint}")
 
         # Самый простой запрос - артикул + производитель (как в браузере)
-        # Используем все варианты артикула для лучшего охвата
         if part.manufacturer_hint:
-            # Основной вариант с оригинальным артикулом
             queries.append(f"{part.part_number} {part.manufacturer_hint}")
-            # Вариант без пробелов в артикуле (наиболее вероятный для поиска)
             if len(part_variants) > 1:
                 queries.append(f"{part_variants[1]} {part.manufacturer_hint}")
-            # Добавляем латинский вариант, если он отличается
             if latin_hint and latin_hint != part.manufacturer_hint:
                 queries.append(f"{part.part_number} {latin_hint}")
                 if len(part_variants) > 1:
                     queries.append(f"{part_variants[1]} {latin_hint}")
 
-        # Просто артикул (основной и без пробелов)
+        # Просто артикул
         queries.append(part.part_number)
         if len(part_variants) > 1:
             queries.append(part_variants[1])
 
-        # Более специфичные запросы с datasheet
+        # Более специфичные запросы
         if part.manufacturer_hint:
             queries.append(f"{part.part_number} {part.manufacturer_hint} datasheet")
             if len(part_variants) > 1:
@@ -557,41 +703,91 @@ class PartSearchEngine:
             f"{part_variants[1] if len(part_variants) > 1 else part.part_number} pdf",
         ])
 
-        urls: list[str] = []
+        results: list[SearchResultItem] = []
         for provider in providers:
             for query in filter(None, queries):
-                urls.extend(await self._search_with_provider(provider, query))
-                if len(urls) >= 20:  # Увеличили лимит для лучшего покрытия
+                search_results = await self._search_with_provider(provider, query)
+                results.extend(search_results)
+                if len(results) >= 20:
                     break
-            if len(urls) >= 20:
+            if len(results) >= 20:
                 break
-        seen: set[str] = set()
-        unique_urls: list[str] = []
-        for url in urls:
-            if url and url not in seen:
-                seen.add(url)
-                unique_urls.append(url)
-        return unique_urls
 
-    async def _candidates_from_urls(self, part: PartBase, urls: list[str]) -> list[Candidate]:
-        if not urls:
+        # Удаляем дубликаты по URL, сохраняя порядок
+        seen: set[str] = set()
+        unique_results: list[SearchResultItem] = []
+        for result in results:
+            if result.url and result.url not in seen:
+                seen.add(result.url)
+                unique_results.append(result)
+
+        # Фильтруем нерелевантные результаты (академические статьи, патенты)
+        filtered_results = [r for r in unique_results if self._is_relevant_result(r, part)]
+        logger.debug(f"Filtered {len(unique_results) - len(filtered_results)} irrelevant results")
+
+        return filtered_results
+
+    async def _candidates_from_search_results(
+        self, part: PartBase, results: list[SearchResultItem], *, skip_download: bool = False
+    ) -> list[Candidate]:
+        """
+        Извлекает кандидатов из результатов поиска.
+        Если skip_download=True, анализирует только метаданные (экономия трафика).
+        """
+        if not results:
             return []
-        # Увеличили количество анализируемых URL для лучшего покрытия
-        contents = await extract_from_urls(urls[:15])
+
         candidates: list[Candidate] = []
-        for url, text in contents.items():
-            candidate = self._guess_manufacturer_from_text(text, part, url)
-            if candidate:
-                manufacturer, alias, confidence, debug = candidate
-                candidates.append(
-                    Candidate(
-                        manufacturer=manufacturer,
-                        alias_used=alias,
-                        confidence=confidence,
-                        source_url=url,
-                        debug_log=debug,
-                    )
+
+        # Этап 1: Анализ метаданных (БЕЗ скачивания страниц)
+        logger.info(f"Analyzing metadata for {len(results)} search results (0 bytes traffic)")
+        for result in results:
+            metadata_candidate = self._analyze_metadata(result, part)
+            if metadata_candidate:
+                candidates.append(metadata_candidate)
+                logger.info(
+                    f"Found manufacturer from metadata: {metadata_candidate.manufacturer} "
+                    f"(confidence: {metadata_candidate.confidence:.2f})"
                 )
+
+        # Если нашли хорошие результаты по метаданным, возвращаем их
+        if candidates and not skip_download:
+            best_confidence = max(c.confidence for c in candidates)
+            if best_confidence >= 0.85:
+                logger.info(f"Skipping page downloads - found good match in metadata (confidence: {best_confidence:.2f})")
+                return candidates
+
+        # Этап 2: Скачивание и анализ контента (только если метаданные не дали результата)
+        if not skip_download:
+            # Приоритизируем результаты: сначала домены производителей, потом остальные
+            prioritized_results = sorted(
+                results,
+                key=lambda r: (
+                    1 if self._manufacturer_from_domain(r.url) else 0,
+                    sum(1 for keyword in PRIORITY_DOMAINS if keyword in r.url.lower())
+                ),
+                reverse=True
+            )
+
+            # Скачиваем только топ-5 страниц (вместо 15) для экономии трафика
+            urls_to_download = [r.url for r in prioritized_results[:5]]
+            logger.info(f"Downloading {len(urls_to_download)} pages for content analysis")
+
+            contents = await extract_from_urls(urls_to_download)
+            for url, text in contents.items():
+                candidate_tuple = self._guess_manufacturer_from_text(text, part, url)
+                if candidate_tuple:
+                    manufacturer, alias, confidence, debug = candidate_tuple
+                    candidates.append(
+                        Candidate(
+                            manufacturer=manufacturer,
+                            alias_used=alias,
+                            confidence=confidence,
+                            source_url=url,
+                            debug_log=debug + " (скачан контент)",
+                        )
+                    )
+
         return candidates
 
     async def _search_stage(
@@ -599,10 +795,20 @@ class PartSearchEngine:
     ) -> StageEvaluation:
         if not providers:
             return StageEvaluation(stage_name, [], 0, None)
-        urls = await self._collect_urls(part, providers)
-        candidates = await self._candidates_from_urls(part, urls)
+
+        # Собираем результаты поиска с метаданными
+        search_results = await self._collect_search_results(part, providers)
+
+        # Анализируем метаданные и при необходимости скачиваем страницы
+        candidates = await self._candidates_from_search_results(part, search_results)
+
         best = max(candidates, key=lambda c: c.confidence) if candidates else None
-        return StageEvaluation(stage_name, [provider.name for provider in providers], len(urls), best)
+        return StageEvaluation(
+            stage_name,
+            [provider.name for provider in providers],
+            len(search_results),
+            best
+        )
 
     def _guess_manufacturer_from_text(
         self, text: str, part: PartBase, url: str
