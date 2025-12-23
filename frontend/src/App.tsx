@@ -56,7 +56,7 @@ import {
   ListAlt,
   FilterAlt,
   Psychology,
-  Settings,
+  Settings as SettingsIcon,
   Fullscreen,
   FullscreenExit,
   KeyboardArrowDown,
@@ -82,9 +82,12 @@ import {
   setUnauthorizedHandler,
   fetchProfile,
   fetchLogs,
-  deletePartById
+  deletePartById,
+  fetchSettings,
+  updateSettings,
+  testTelegram
 } from './api'
-import { MatchStatus, PartRead, PartRequestItem, SearchLog, SearchResult, StageStatus } from './types'
+import { MatchStatus, PartRead, PartRequestItem, SearchLog, SearchResult, Settings, SettingsUpdate, StageStatus } from './types'
 import Draggable from 'react-draggable'
 
 const emptyItem: PartRequestItem = { part_number: '', manufacturer_hint: '' }
@@ -729,6 +732,10 @@ export function App() {
     swaggerUrl: localStorage.getItem('swagger_url') || '',
     customHeaders: localStorage.getItem('custom_headers') || ''
   })
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [telegramTesting, setTelegramTesting] = useState(false)
   const tableData = useMemo(() => {
     const sorted = [...history].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -900,6 +907,58 @@ export function App() {
     localStorage.setItem('custom_headers', apiConfig.customHeaders)
     setApiConfigOpen(false)
     setSnackbar('API настройки сохранены')
+  }
+
+  const loadSettings = useCallback(async () => {
+    if (auth?.role !== 'admin') return
+    setSettingsLoading(true)
+    try {
+      const data = await fetchSettings()
+      setSettings(data)
+    } catch (error) {
+      console.error('Failed to load settings:', error)
+      setSnackbar('Не удалось загрузить настройки')
+    } finally {
+      setSettingsLoading(false)
+    }
+  }, [auth])
+
+  const handleSaveSettings = async () => {
+    if (!settings || auth?.role !== 'admin') return
+    setSettingsSaving(true)
+    try {
+      const updateData: SettingsUpdate = {
+        telegram_bot_token: settings.telegram_bot_token,
+        telegram_chat_id: settings.telegram_chat_id,
+        telegram_enabled: settings.telegram_enabled,
+        openai_balance_threshold: settings.openai_balance_threshold,
+        google_balance_threshold: settings.google_balance_threshold,
+        notify_on_errors: settings.notify_on_errors,
+        notify_on_low_balance: settings.notify_on_low_balance
+      }
+      const updated = await updateSettings(updateData)
+      setSettings(updated)
+      setSnackbar('Настройки успешно сохранены')
+    } catch (error) {
+      console.error('Failed to save settings:', error)
+      setSnackbar('Не удалось сохранить настройки')
+    } finally {
+      setSettingsSaving(false)
+    }
+  }
+
+  const handleTestTelegram = async () => {
+    if (auth?.role !== 'admin') return
+    setTelegramTesting(true)
+    try {
+      const result = await testTelegram('Тестовое сообщение из AliasFinder')
+      setSnackbar(result.message || 'Тестовое сообщение отправлено')
+    } catch (error) {
+      console.error('Failed to test Telegram:', error)
+      setSnackbar('Не удалось отправить тестовое сообщение')
+    } finally {
+      setTelegramTesting(false)
+    }
   }
 
   const handleApiConfigChange = (field: keyof typeof apiConfig, value: string) => {
@@ -1104,6 +1163,13 @@ export function App() {
 
     return () => clearInterval(intervalId)
   }, [autoRefreshLogs, activePage, auth, refreshInterval])
+
+  // Load settings when API config dialog opens
+  useEffect(() => {
+    if (apiConfigOpen && auth?.role === 'admin') {
+      loadSettings()
+    }
+  }, [apiConfigOpen, loadSettings, auth])
 
   // Auto-scroll to bottom when logs change
   useEffect(() => {
@@ -2709,59 +2775,115 @@ export function App() {
         </DialogTitle>
         <DialogContent>
           <Stack spacing={3} sx={{ mt: 2 }}>
+            <Typography variant="h6" color="primary">📱 Telegram Уведомления</Typography>
+            <Divider />
+
             <TextField
-              label="API URL"
-              value={apiConfig.apiUrl}
-              onChange={(e) => handleApiConfigChange('apiUrl', e.target.value)}
+              label="Telegram Bot Token"
+              value={settings?.telegram_bot_token || ''}
+              onChange={(e) => setSettings(prev => prev ? {...prev, telegram_bot_token: e.target.value} : null)}
               fullWidth
-              placeholder="https://api.example.com"
-              helperText="Базовый URL для API запросов"
-            />
-            <TextField
-              label="API Key"
-              value={apiConfig.apiKey}
-              onChange={(e) => handleApiConfigChange('apiKey', e.target.value)}
-              fullWidth
-              placeholder="your-api-key"
-              helperText="API ключ для аутентификации"
+              placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+              helperText="Токен бота из @BotFather"
               type="password"
+              disabled={auth?.role !== 'admin'}
             />
+
             <TextField
-              label="API Token"
-              value={apiConfig.apiToken}
-              onChange={(e) => handleApiConfigChange('apiToken', e.target.value)}
+              label="Telegram Chat ID"
+              value={settings?.telegram_chat_id || ''}
+              onChange={(e) => setSettings(prev => prev ? {...prev, telegram_chat_id: e.target.value} : null)}
               fullWidth
-              placeholder="Bearer token"
-              helperText="Токен авторизации (если требуется)"
-              type="password"
+              placeholder="123456789"
+              helperText="ID чата для уведомлений (получите через /getUpdates)"
+              disabled={auth?.role !== 'admin'}
             />
-            <TextField
-              label="Swagger URL"
-              value={apiConfig.swaggerUrl}
-              onChange={(e) => handleApiConfigChange('swaggerUrl', e.target.value)}
-              fullWidth
-              placeholder="https://api.example.com/swagger/v1/swagger.json"
-              helperText="URL Swagger документации"
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings?.telegram_enabled || false}
+                  onChange={(e) => setSettings(prev => prev ? {...prev, telegram_enabled: e.target.checked} : null)}
+                  disabled={auth?.role !== 'admin'}
+                />
+              }
+              label="Включить Telegram уведомления"
             />
+
+            <Typography variant="h6" color="primary" sx={{ mt: 2 }}>⚖️ Пороги баланса</Typography>
+            <Divider />
+
             <TextField
-              label="Дополнительные заголовки"
-              value={apiConfig.customHeaders}
-              onChange={(e) => handleApiConfigChange('customHeaders', e.target.value)}
+              label="Минимальный баланс OpenAI (USD)"
+              type="number"
+              value={settings?.openai_balance_threshold || 5}
+              onChange={(e) => setSettings(prev => prev ? {...prev, openai_balance_threshold: parseFloat(e.target.value)} : null)}
               fullWidth
-              multiline
-              rows={4}
-              placeholder='{"Content-Type": "application/json", "X-Custom-Header": "value"}'
-              helperText="JSON объект с дополнительными HTTP заголовками"
+              helperText="Порог для уведомлений о низком балансе OpenAI"
+              disabled={auth?.role !== 'admin'}
+              inputProps={{ min: 0, step: 0.5 }}
+            />
+
+            <TextField
+              label="Минимальный баланс Google Search (USD)"
+              type="number"
+              value={settings?.google_balance_threshold || 10}
+              onChange={(e) => setSettings(prev => prev ? {...prev, google_balance_threshold: parseFloat(e.target.value)} : null)}
+              fullWidth
+              helperText="Порог для уведомлений о низком балансе Google"
+              disabled={auth?.role !== 'admin'}
+              inputProps={{ min: 0, step: 0.5 }}
+            />
+
+            <Typography variant="h6" color="primary" sx={{ mt: 2 }}>🔔 Типы уведомлений</Typography>
+            <Divider />
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings?.notify_on_errors || false}
+                  onChange={(e) => setSettings(prev => prev ? {...prev, notify_on_errors: e.target.checked} : null)}
+                  disabled={auth?.role !== 'admin'}
+                />
+              }
+              label="Уведомлять об ошибках сервиса"
+            />
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings?.notify_on_low_balance || false}
+                  onChange={(e) => setSettings(prev => prev ? {...prev, notify_on_low_balance: e.target.checked} : null)}
+                  disabled={auth?.role !== 'admin'}
+                />
+              }
+              label="Уведомлять о низком балансе"
             />
           </Stack>
+          {settingsLoading && <LinearProgress sx={{ mt: 2 }} />}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setApiConfigOpen(false)}>
-            Отмена
+          <Button onClick={() => setApiConfigOpen(false)} disabled={settingsSaving || telegramTesting}>
+            Закрыть
           </Button>
-          <Button variant="contained" onClick={handleSaveApiConfig} startIcon={<Api />}>
-            Сохранить настройки
-          </Button>
+          {auth?.role === 'admin' && (
+            <>
+              <Button
+                onClick={handleTestTelegram}
+                disabled={!settings?.telegram_bot_token || !settings?.telegram_chat_id || telegramTesting || settingsSaving}
+              >
+                {telegramTesting ? 'Отправка...' : 'Тест Telegram'}
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleSaveSettings}
+                disabled={!settings || settingsSaving || telegramTesting}
+                startIcon={<SettingsIcon />}
+              >
+                {settingsSaving ? 'Сохранение...' : 'Сохранить'}
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
     </ThemeProvider>
