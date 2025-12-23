@@ -88,3 +88,24 @@ export interface SearchLog {
   payload?: string | null
   created_at: string
 }
+
+export interface Settings {
+  id: number
+  telegram_bot_token?: string | null
+  telegram_chat_id?: string | null
+  telegram_enabled: boolean
+  openai_balance_threshold?: number | null
+  google_balance_threshold?: number | null
+  notify_on_errors: boolean
+  notify_on_low_balance: boolean
+}
+
+export interface SettingsUpdate {
+  telegram_bot_token?: string | null
+  telegram_chat_id?: string | null
+  telegram_enabled?: boolean | null
+  openai_balance_threshold?: number | null
+  google_balance_threshold?: number | null
+  notify_on_errors?: boolean | null
+  notify_on_low_balance?: boolean | null
+}
