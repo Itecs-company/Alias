@@ -60,17 +60,12 @@ class ManufacturerInfoExtractor:
 
         try:
             system_prompt = (
-                "You are an electronics industry expert. Given a manufacturer name, "
-                "provide structured information about them. "
-                "Respond ONLY with valid JSON in this exact format: "
-                '{"what_produces": "brief description of what they produce", '
-                '"website": "official website URL", '
-                '"aliases": "comma-separated alternative names/brands", '
-                '"country": "country of origin"}. '
-                "Keep descriptions concise (under 100 chars). If information is unknown, use null."
+                "Electronics expert. Respond ONLY with JSON: "
+                '{"what_produces": "brief description", "website": "URL", "aliases": "names", "country": "origin"}. '
+                "Max 50 chars per field. Use null if unknown."
             )
 
-            user_prompt = f"Provide information about manufacturer: {manufacturer_name}"
+            user_prompt = f"Info: {manufacturer_name}"
 
             completion = await self.client.chat.completions.create(
                 model=self.model,
@@ -79,7 +74,7 @@ class ManufacturerInfoExtractor:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0,
-                max_tokens=300,
+                max_tokens=150,
             )
 
             if not completion.choices[0].message:
@@ -359,6 +354,35 @@ def normalize_manufacturer_name(name: str) -> str:
     return normalized
 
 
+def normalize_part_number(part_number: str) -> list[str]:
+    """
+    Генерирует различные варианты написания артикула для более гибкого поиска.
+
+    Примеры:
+    - "6 030 646" -> ["6 030 646", "6030646", "6-030-646", "0603 0646", "60300646"]
+    - "STM32F4" -> ["STM32F4", "STM 32 F 4", "STM-32-F-4"]
+    """
+    variants = [part_number]  # Оригинальный вариант
+
+    # Убираем все пробелы и дефисы
+    clean = part_number.replace(" ", "").replace("-", "").replace("_", "")
+    if clean != part_number:
+        variants.append(clean)
+
+    # Вариант с дефисами вместо пробелов
+    with_dashes = part_number.replace(" ", "-")
+    if with_dashes != part_number and with_dashes not in variants:
+        variants.append(with_dashes)
+
+    # Вариант без пробелов в начале (для артикулов типа "0603 0646" -> "06030646")
+    if part_number.startswith("0") and " " in part_number:
+        compact = part_number.replace(" ", "")
+        if compact not in variants:
+            variants.append(compact)
+
+    return variants
+
+
 NOISY_PHRASES = (
     "verify you are",
     "captcha",
@@ -388,6 +412,52 @@ KEYWORD_HINTS = (
     "technology",
     "microelectronics",
 )
+
+# Паттерны для фильтрации нерелевантных результатов
+BLACKLIST_DOMAINS = {
+    "researchgate.net",
+    "academia.edu",
+    "scholar.google.com",
+    "patents.google.com",
+    "arxiv.org",
+    "sciencedirect.com",
+    "springer.com",
+    "ieee.org",
+    "acm.org",
+}
+
+BLACKLIST_KEYWORDS = (
+    "patent",
+    "research paper",
+    "scientific article",
+    "conference",
+    "journal",
+    "thesis",
+    "dissertation",
+    "abstract",
+    "citation",
+    "academic",
+)
+
+# Приоритетные домены для компонентов
+PRIORITY_DOMAINS = (
+    "datasheet",
+    "pdf",
+    "manufacturer",
+    "digikey",
+    "mouser",
+    "farnell",
+    "rs-online",
+    "arrow",
+)
+
+
+@dataclass
+class SearchResultItem:
+    """Результат поиска с метаданными"""
+    url: str
+    title: str | None = None
+    snippet: str | None = None
 
 
 @dataclass
@@ -477,82 +547,247 @@ class PartSearchEngine:
 
     async def _search_with_provider(
         self, provider: SearchProvider, query: str, *, max_results: int = 5
-    ) -> list[str]:
+    ) -> list[SearchResultItem]:
         try:
             results = await provider.search(query, max_results=max_results)
         except Exception:  # noqa: BLE001
             logger.exception("Provider %s failed", provider.name)
             return []
-        return [item.get("link") for item in results if item.get("link")]
 
-    async def _collect_urls(self, part: PartBase, providers: list[SearchProvider]) -> list[str]:
-        # Формируем запросы от простых к специфичным
+        search_results = []
+        for item in results:
+            url = item.get("link")
+            if url:
+                search_results.append(SearchResultItem(
+                    url=url,
+                    title=item.get("title"),
+                    snippet=item.get("snippet")
+                ))
+        return search_results
+
+    def _is_relevant_result(self, result: SearchResultItem, part: PartBase) -> bool:
+        """Фильтрует нерелевантные результаты (академические статьи, патенты и т.д.)"""
+        url_lower = result.url.lower()
+
+        # Проверка черного списка доменов
+        try:
+            hostname = urlparse(result.url).hostname
+            if hostname:
+                hostname_lower = hostname.lower()
+                for blacklist_domain in BLACKLIST_DOMAINS:
+                    if blacklist_domain in hostname_lower:
+                        logger.debug(f"Filtered out blacklisted domain: {hostname}")
+                        return False
+        except ValueError:
+            pass
+
+        # Проверка черного списка ключевых слов в title и snippet
+        text_to_check = " ".join(filter(None, [result.title, result.snippet])).lower()
+        for keyword in BLACKLIST_KEYWORDS:
+            if keyword in text_to_check:
+                logger.debug(f"Filtered out result with blacklisted keyword '{keyword}': {result.url}")
+                return False
+
+        return True
+
+    def _analyze_metadata(self, result: SearchResultItem, part: PartBase) -> Candidate | None:
+        """
+        Анализирует метаданные (домен, title, snippet) БЕЗ скачивания страницы.
+        Это экономит трафик и время.
+        """
+        # 1. Приоритет: анализ домена
+        domain_manufacturer = self._manufacturer_from_domain(result.url)
+        if domain_manufacturer:
+            # Проверяем, упоминается ли артикул в метаданных
+            part_variants = normalize_part_number(part.part_number)
+            text_to_check = " ".join(filter(None, [result.title, result.snippet])).lower()
+
+            # Ищем любой вариант артикула в метаданных
+            part_found = any(variant.lower() in text_to_check for variant in part_variants)
+
+            if part_found or part.manufacturer_hint:
+                # Если артикул найден или есть подсказка производителя
+                alias = self._alias_if_similar(part, domain_manufacturer)
+                host = urlparse(result.url).hostname or result.url
+                return Candidate(
+                    manufacturer=domain_manufacturer,
+                    alias_used=alias,
+                    confidence=0.96,
+                    source_url=result.url,
+                    debug_log=f"Определено по домену {host} (метаданные, 0 байт трафика)",
+                )
+
+        # 2. Анализ title и snippet на наличие известных производителей
+        text_to_check = " ".join(filter(None, [result.title, result.snippet]))
+        if not text_to_check:
+            return None
+
+        known_manufacturer = self._manufacturer_from_known_text(text_to_check)
+        if known_manufacturer:
+            # Проверяем наличие артикула в метаданных
+            part_variants = normalize_part_number(part.part_number)
+            text_lower = text_to_check.lower()
+            part_found = any(variant.lower() in text_lower for variant in part_variants)
+
+            if part_found:
+                alias = self._alias_if_similar(part, known_manufacturer)
+                return Candidate(
+                    manufacturer=known_manufacturer,
+                    alias_used=alias,
+                    confidence=0.88,
+                    source_url=result.url,
+                    debug_log="Найдено в метаданных поиска (title/snippet, 0 байт трафика)",
+                )
+
+        # 3. Если есть подсказка производителя, проверяем её в метаданных
+        if part.manufacturer_hint:
+            text_lower = text_to_check.lower()
+            hint_lower = part.manufacturer_hint.lower()
+
+            # Проверяем наличие и производителя, и артикула
+            part_variants = normalize_part_number(part.part_number)
+            part_found = any(variant.lower() in text_lower for variant in part_variants)
+            manufacturer_found = hint_lower in text_lower
+
+            if part_found and manufacturer_found:
+                return Candidate(
+                    manufacturer=part.manufacturer_hint,
+                    alias_used=part.manufacturer_hint,
+                    confidence=0.82,
+                    source_url=result.url,
+                    debug_log="Совпадение подсказки оператора в метаданных (0 байт трафика)",
+                )
+
+        return None
+
+    async def _collect_search_results(self, part: PartBase, providers: list[SearchProvider]) -> list[SearchResultItem]:
+        """Собирает результаты поиска с метаданными (title, snippet)"""
         queries = []
+
+        # Генерируем варианты написания артикула
+        part_variants = normalize_part_number(part.part_number)
+        logger.debug(f"Part number variants: {part_variants}")
 
         # Проверяем, есть ли латинский эквивалент для кириллического названия
         latin_hint = None
         if part.manufacturer_hint:
             latin_hint = normalize_manufacturer_name(part.manufacturer_hint)
-            # Если нормализация дала другое название, значит была кириллица
             if latin_hint != part.manufacturer_hint:
                 logger.debug(f"Normalized manufacturer hint: {part.manufacturer_hint} -> {latin_hint}")
 
         # Самый простой запрос - артикул + производитель (как в браузере)
         if part.manufacturer_hint:
             queries.append(f"{part.part_number} {part.manufacturer_hint}")
-            # Добавляем латинский вариант, если он отличается
+            if len(part_variants) > 1:
+                queries.append(f"{part_variants[1]} {part.manufacturer_hint}")
             if latin_hint and latin_hint != part.manufacturer_hint:
                 queries.append(f"{part.part_number} {latin_hint}")
+                if len(part_variants) > 1:
+                    queries.append(f"{part_variants[1]} {latin_hint}")
 
         # Просто артикул
         queries.append(part.part_number)
+        if len(part_variants) > 1:
+            queries.append(part_variants[1])
 
         # Более специфичные запросы
         if part.manufacturer_hint:
             queries.append(f"{part.part_number} {part.manufacturer_hint} datasheet")
+            if len(part_variants) > 1:
+                queries.append(f"{part_variants[1]} {part.manufacturer_hint} datasheet")
             if latin_hint and latin_hint != part.manufacturer_hint:
                 queries.append(f"{part.part_number} {latin_hint} datasheet")
 
         queries.extend([
             f"{part.part_number} datasheet manufacturer",
-            f"{part.part_number} pdf",
+            f"{part_variants[1] if len(part_variants) > 1 else part.part_number} pdf",
         ])
 
-        urls: list[str] = []
+        results: list[SearchResultItem] = []
         for provider in providers:
             for query in filter(None, queries):
-                urls.extend(await self._search_with_provider(provider, query))
-                if len(urls) >= 15:  # Увеличили лимит для лучшего покрытия
+                search_results = await self._search_with_provider(provider, query)
+                results.extend(search_results)
+                if len(results) >= 20:
                     break
-            if len(urls) >= 15:
+            if len(results) >= 20:
                 break
-        seen: set[str] = set()
-        unique_urls: list[str] = []
-        for url in urls:
-            if url and url not in seen:
-                seen.add(url)
-                unique_urls.append(url)
-        return unique_urls
 
-    async def _candidates_from_urls(self, part: PartBase, urls: list[str]) -> list[Candidate]:
-        if not urls:
+        # Удаляем дубликаты по URL, сохраняя порядок
+        seen: set[str] = set()
+        unique_results: list[SearchResultItem] = []
+        for result in results:
+            if result.url and result.url not in seen:
+                seen.add(result.url)
+                unique_results.append(result)
+
+        # Фильтруем нерелевантные результаты (академические статьи, патенты)
+        filtered_results = [r for r in unique_results if self._is_relevant_result(r, part)]
+        logger.debug(f"Filtered {len(unique_results) - len(filtered_results)} irrelevant results")
+
+        return filtered_results
+
+    async def _candidates_from_search_results(
+        self, part: PartBase, results: list[SearchResultItem], *, skip_download: bool = False
+    ) -> list[Candidate]:
+        """
+        Извлекает кандидатов из результатов поиска.
+        Если skip_download=True, анализирует только метаданные (экономия трафика).
+        """
+        if not results:
             return []
-        # Увеличили количество анализируемых URL для лучшего покрытия
-        contents = await extract_from_urls(urls[:10])
+
         candidates: list[Candidate] = []
-        for url, text in contents.items():
-            candidate = self._guess_manufacturer_from_text(text, part, url)
-            if candidate:
-                manufacturer, alias, confidence, debug = candidate
-                candidates.append(
-                    Candidate(
-                        manufacturer=manufacturer,
-                        alias_used=alias,
-                        confidence=confidence,
-                        source_url=url,
-                        debug_log=debug,
-                    )
+
+        # Этап 1: Анализ метаданных (БЕЗ скачивания страниц)
+        logger.info(f"Analyzing metadata for {len(results)} search results (0 bytes traffic)")
+        for result in results:
+            metadata_candidate = self._analyze_metadata(result, part)
+            if metadata_candidate:
+                candidates.append(metadata_candidate)
+                logger.info(
+                    f"Found manufacturer from metadata: {metadata_candidate.manufacturer} "
+                    f"(confidence: {metadata_candidate.confidence:.2f})"
                 )
+
+        # Если нашли хорошие результаты по метаданным, возвращаем их
+        if candidates and not skip_download:
+            best_confidence = max(c.confidence for c in candidates)
+            if best_confidence >= 0.85:
+                logger.info(f"Skipping page downloads - found good match in metadata (confidence: {best_confidence:.2f})")
+                return candidates
+
+        # Этап 2: Скачивание и анализ контента (только если метаданные не дали результата)
+        if not skip_download:
+            # Приоритизируем результаты: сначала домены производителей, потом остальные
+            prioritized_results = sorted(
+                results,
+                key=lambda r: (
+                    1 if self._manufacturer_from_domain(r.url) else 0,
+                    sum(1 for keyword in PRIORITY_DOMAINS if keyword in r.url.lower())
+                ),
+                reverse=True
+            )
+
+            # Скачиваем только топ-5 страниц (вместо 15) для экономии трафика
+            urls_to_download = [r.url for r in prioritized_results[:5]]
+            logger.info(f"Downloading {len(urls_to_download)} pages for content analysis")
+
+            contents = await extract_from_urls(urls_to_download)
+            for url, text in contents.items():
+                candidate_tuple = self._guess_manufacturer_from_text(text, part, url)
+                if candidate_tuple:
+                    manufacturer, alias, confidence, debug = candidate_tuple
+                    candidates.append(
+                        Candidate(
+                            manufacturer=manufacturer,
+                            alias_used=alias,
+                            confidence=confidence,
+                            source_url=url,
+                            debug_log=debug + " (скачан контент)",
+                        )
+                    )
+
         return candidates
 
     async def _search_stage(
@@ -560,10 +795,20 @@ class PartSearchEngine:
     ) -> StageEvaluation:
         if not providers:
             return StageEvaluation(stage_name, [], 0, None)
-        urls = await self._collect_urls(part, providers)
-        candidates = await self._candidates_from_urls(part, urls)
+
+        # Собираем результаты поиска с метаданными
+        search_results = await self._collect_search_results(part, providers)
+
+        # Анализируем метаданные и при необходимости скачиваем страницы
+        candidates = await self._candidates_from_search_results(part, search_results)
+
         best = max(candidates, key=lambda c: c.confidence) if candidates else None
-        return StageEvaluation(stage_name, [provider.name for provider in providers], len(urls), best)
+        return StageEvaluation(
+            stage_name,
+            [provider.name for provider in providers],
+            len(search_results),
+            best
+        )
 
     def _guess_manufacturer_from_text(
         self, text: str, part: PartBase, url: str
@@ -589,13 +834,35 @@ class PartSearchEngine:
                 "В тексте даташита найдено упоминание производителя",
             )
 
+        # Генерируем варианты написания артикула для более гибкого поиска
+        part_variants = normalize_part_number(part.part_number)
+        text_lower = text.lower()
+
         lines = text.splitlines()
-        candidates = [
-            line
-            for line in lines
-            if part.part_number.lower() in line.lower()
-            and not any(phrase in line.lower() for phrase in NOISY_PHRASES)
-        ]
+        candidates = []
+
+        # Ищем строки с любым вариантом артикула
+        for variant in part_variants:
+            variant_lower = variant.lower()
+            matching_lines = [
+                line
+                for line in lines
+                if variant_lower in line.lower()
+                and not any(phrase in line.lower() for phrase in NOISY_PHRASES)
+            ]
+            candidates.extend(matching_lines)
+            if len(candidates) >= 20:
+                break
+
+        # Удаляем дубликаты, сохраняя порядок
+        seen_lines = set()
+        unique_candidates = []
+        for line in candidates:
+            if line not in seen_lines:
+                seen_lines.add(line)
+                unique_candidates.append(line)
+        candidates = unique_candidates
+
         if not candidates and part.manufacturer_hint:
             candidates = [
                 line
@@ -642,8 +909,8 @@ class PartSearchEngine:
                 score = match[1]
                 if not best_known or score > best_known[1]:
                     best_known = (match[0], score)
-        # Снизили порог с 82 до 75 для большей гибкости
-        if best_known and best_known[1] >= 75:
+        # Снизили порог с 82 до 70 для большей гибкости
+        if best_known and best_known[1] >= 70:
             manufacturer = best_known[0]
             alias = self._alias_if_similar(part, manufacturer)
             confidence = min(0.97, best_known[1] / 100)
@@ -656,9 +923,9 @@ class PartSearchEngine:
                 manufacturer_names,
                 scorer=fuzz.WRatio,
             )
-            # Снизили порог с 67 до 60 для лучшего распознавания вариантов написания
-            if match and match[1] >= 60:
-                confidence = max(0.60, match[1] / 100)
+            # Снизили порог с 67 до 55 для лучшего распознавания вариантов написания
+            if match and match[1] >= 55:
+                confidence = max(0.55, match[1] / 100)
                 manufacturer = match[0]
                 debug = f"Совпадение с подсказкой оператора ({confidence:.2f})"
                 return manufacturer, part.manufacturer_hint, confidence, debug
