@@ -158,11 +158,10 @@ class OpenAISearchProvider(SearchProvider):
         await self._maybe_warn_low_balance()
 
         system_prompt = (
-            "You are a sourcing assistant. Given an electronic component part number, "
-            "return reputable URLs (datasheets, manufacturer pages) containing the manufacturer name. "
-            "Respond strictly with a JSON array where each item has 'title', 'url', and optional 'summary' fields."
+            "Sourcing assistant. Return JSON array: [{'title':'...', 'url':'...', 'summary':'...'}]. "
+            "Find datasheet/manufacturer URLs for electronic components."
         )
-        user_message = f"Return JSON: {query}"
+        user_message = f"URLs for: {query}"
 
         # Full request logging for OpenAI
         messages = [
@@ -173,7 +172,7 @@ class OpenAISearchProvider(SearchProvider):
             "model": self.model,
             "messages": messages,
             "temperature": 0,
-            "max_tokens": 500,
+            "max_tokens": 300,
             "max_results": max_results,
         }
         await self._log("request", query, payload=request_log)
@@ -182,7 +181,7 @@ class OpenAISearchProvider(SearchProvider):
             model=self.model,
             messages=messages,
             temperature=0,
-            max_tokens=500,
+            max_tokens=300,
         )
         choice = completion.choices[0]
         output: str | list[dict[str, str]] | None = None

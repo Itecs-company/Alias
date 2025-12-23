@@ -797,9 +797,12 @@ export function App() {
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(savedSettings?.fontSize || 'medium')
   const [rowHeight, setRowHeight] = useState<number>(savedSettings?.rowHeight || 53)
   const [fullscreenMode, setFullscreenMode] = useState<boolean>(savedSettings?.fullscreenMode || false)
-  const [fitToScreen, setFitToScreen] = useState<boolean>(savedSettings?.fitToScreen || false)
+  const [fitToScreen, setFitToScreen] = useState<boolean>(savedSettings?.fitToScreen ?? true)
   const [tableContainerSize, setTableContainerSize] = useState<{ width: number; height: number }>(
-    savedSettings?.tableContainerSize || { width: 1200, height: 600 }
+    savedSettings?.tableContainerSize || {
+      width: Math.min(window.innerWidth - 80, 1400),
+      height: Math.min(window.innerHeight - 200, 700)
+    }
   )
   const [tableDraggable, setTableDraggable] = useState(false)
   const [tablePosition, setTablePosition] = useState({ x: 0, y: 0 })
