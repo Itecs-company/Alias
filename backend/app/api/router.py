@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.part import Part
 from app.models.search_log import SearchLog
+from app.models.settings import Settings
 from app.models.user import User
 from app.schemas.auth import (
     AuthenticatedUser,
@@ -25,10 +26,12 @@ from app.schemas.part import (
     SearchResponse,
     UploadResponse,
 )
+from app.schemas.settings import SettingsRead, SettingsUpdate, TelegramTestRequest
 from app.services.exporter import export_parts_to_excel, export_parts_to_pdf
 from app.services.importer import import_parts_from_excel
 from app.services.search_engine import PartSearchEngine
 from app.services.optimized_search_engine import OptimizedPartSearchEngine
+from app.services.telegram_notifier import TelegramNotifier
 from passlib.exc import UnknownHashError
 
 from app.core.security import create_access_token, get_password_hash, verify_password
@@ -305,6 +308,78 @@ async def download_file(
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path)
+
+
+@protected_router.get("/settings", response_model=SettingsRead)
+async def get_settings_endpoint(
+    session: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> SettingsRead:
+    """Получить настройки системы (только для администраторов)"""
+    stmt = select(Settings).limit(1)
+    result = await session.execute(stmt)
+    settings_obj = result.scalar_one_or_none()
+
+    if not settings_obj:
+        # Создаем настройки по умолчанию
+        settings_obj = Settings(
+            telegram_enabled=False,
+            openai_balance_threshold=5.0,
+            google_balance_threshold=10.0,
+            notify_on_errors=True,
+            notify_on_low_balance=True,
+        )
+        session.add(settings_obj)
+        await session.commit()
+        await session.refresh(settings_obj)
+
+    return SettingsRead.model_validate(settings_obj)
+
+
+@protected_router.put("/settings", response_model=SettingsRead)
+async def update_settings_endpoint(
+    settings_update: SettingsUpdate,
+    session: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> SettingsRead:
+    """Обновить настройки системы (только для администраторов)"""
+    stmt = select(Settings).limit(1)
+    result = await session.execute(stmt)
+    settings_obj = result.scalar_one_or_none()
+
+    if not settings_obj:
+        settings_obj = Settings()
+        session.add(settings_obj)
+
+    # Обновляем только переданные поля
+    update_data = settings_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(settings_obj, field, value)
+
+    await session.commit()
+    await session.refresh(settings_obj)
+
+    return SettingsRead.model_validate(settings_obj)
+
+
+@protected_router.post("/settings/test-telegram")
+async def test_telegram_endpoint(
+    test_request: TelegramTestRequest,
+    session: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> dict[str, str]:
+    """Тестировать отправку сообщения в Telegram (только для администраторов)"""
+    notifier = TelegramNotifier(session)
+
+    success, message = await notifier.test_connection()
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=message
+        )
+
+    return {"status": "success", "message": message}
 
 
 router.include_router(auth_router)
