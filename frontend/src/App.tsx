@@ -1205,9 +1205,11 @@ export function App() {
     }
     try {
       const created = await createPart(first)
-      setSnackbar(`Товар добавлен: ${created.part_number}`)
+      setSnackbar(`Товар добавлен: ${created.part_number}. Запуск поиска...`)
       await refreshHistory()
-      // Очищаем форму после успешного добавления
+      // Запускаем автоматический поиск для добавленного товара
+      await performSearch([first])
+      // Очищаем форму после успешного добавления и поиска
       setItems([{ ...emptyItem }])
     } catch (error) {
       setSnackbar('Не удалось добавить товар')
@@ -1856,30 +1858,6 @@ export function App() {
                     Выбрано строк: {selectedIds.size}
                   </Typography>
                   <Stack direction="row" spacing={1}>
-                    <Tooltip title="Поиск через Google Search для выбранных строк">
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="secondary"
-                        startIcon={<Search />}
-                        onClick={() => handleBatchSearch(['googlesearch'])}
-                        disabled={loading}
-                      >
-                        Google Search
-                      </Button>
-                    </Tooltip>
-                    <Tooltip title="Поиск через OpenAI для выбранных строк">
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="success"
-                        startIcon={<Psychology />}
-                        onClick={() => handleBatchSearch(['OpenAI'])}
-                        disabled={loading}
-                      >
-                        OpenAI
-                      </Button>
-                    </Tooltip>
                     <Tooltip title="Общий поиск (Internet → Google → OpenAI) для выбранных строк">
                       <Button
                         size="small"
