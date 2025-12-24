@@ -1205,11 +1205,9 @@ export function App() {
     }
     try {
       const created = await createPart(first)
-      setSnackbar(`Товар добавлен: ${created.part_number}. Запуск поиска...`)
+      setSnackbar(`Товар добавлен: ${created.part_number}. Выберите его в таблице и нажмите "Общий поиск"`)
       await refreshHistory()
-      // Запускаем автоматический поиск для добавленного товара
-      await performSearch([first])
-      // Очищаем форму после успешного добавления и поиска
+      // Очищаем форму после успешного добавления
       setItems([{ ...emptyItem }])
     } catch (error) {
       setSnackbar('Не удалось добавить товар')
