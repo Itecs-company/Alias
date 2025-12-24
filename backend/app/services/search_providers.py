@@ -11,10 +11,24 @@ import httpx
 from loguru import logger
 from openai import AsyncOpenAI
 from bs4 import BeautifulSoup
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
 
 from app.core.config import get_settings
 from app.core.http import httpx_client_kwargs
 from app.services.log_recorder import SearchLogRecorder, serialize_payload
+from app.services.throttle import (
+    GOOGLE_WEB_RATE_LIMITER,
+    GOOGLE_CSE_RATE_LIMITER,
+    SERPAPI_RATE_LIMITER,
+    OPENAI_RATE_LIMITER,
+    SEARCH_CACHE,
+)
 
 settings = get_settings()
 
@@ -68,6 +82,14 @@ class SerpAPISearchProvider(SearchProvider):
         if not settings.serpapi_key:
             return []
 
+        # Проверяем кэш
+        cached = await SEARCH_CACHE.get(self.name, query, max_results=max_results, engine=self.engine)
+        if cached is not None:
+            return cached
+
+        # Применяем rate limiting
+        await SERPAPI_RATE_LIMITER.acquire()
+
         params = {
             "engine": self.engine,
             "q": query,
@@ -85,57 +107,65 @@ class SerpAPISearchProvider(SearchProvider):
         }
         await self._log("request", query, payload=request_log)
 
-        async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
-            response: httpx.Response | None = None
-            for attempt in range(3):
-                try:
-                    response = await client.get(self.base_url, params=params)
-                    response.raise_for_status()
-                    break
-                except httpx.HTTPStatusError as exc:
-                    status_code = exc.response.status_code if exc.response else "?"
-                    if status_code in {429, 503, "429", "503"} and attempt < 2:
-                        await asyncio.sleep(1.0 + random.random() * (attempt + 1))
-                        continue
-                    logger.warning(
-                        "SerpAPI returned %s for query '%s'",
-                        status_code,
-                        query,
-                    )
-                    code = int(status_code) if isinstance(status_code, int) or str(status_code).isdigit() else None
-                    await self._log("response", query, status_code=code, payload="error")
-                    return []
-                except httpx.HTTPError as exc:
-                    if attempt < 2:
-                        await asyncio.sleep(1.0 + random.random() * (attempt + 1))
-                        continue
-                    logger.warning("SerpAPI request failed for '%s': %s", query, exc)
-                    await self._log("response", query, status_code=None, payload=str(exc))
-                    return []
-            if response is None:
-                return []
-            payload = response.json()
+        # Используем tenacity для retry
+        response_data = await self._fetch_with_retry(query, params)
+        if response_data is None:
+            return []
+
+        response, payload = response_data
 
         organic_results = payload.get("organic_results", [])
         news_results = payload.get("news_results", [])
-        results_used = organic_results if organic_results else news_results
 
         # Full response logging
         response_log = {
             "status_code": response.status_code,
             "headers": dict(response.headers),
             "engine": self.engine,
-            "full_response": payload,  # Complete API response
+            "full_response": payload,
             "organic_results_count": len(organic_results),
             "news_results_count": len(news_results),
         }
         await self._log("response", query, status_code=response.status_code, payload=response_log)
 
+        results = []
         if "organic_results" in payload:
-            return payload["organic_results"][:max_results]
-        if "news_results" in payload:
-            return payload["news_results"][:max_results]
-        return []
+            results = payload["organic_results"][:max_results]
+        elif "news_results" in payload:
+            results = payload["news_results"][:max_results]
+
+        # Сохраняем в кэш
+        await SEARCH_CACHE.set(self.name, query, results, max_results=max_results, engine=self.engine)
+
+        return results
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((httpx.HTTPError, httpx.HTTPStatusError)),
+        before_sleep=before_sleep_log(logger, "WARNING"),
+        reraise=True,
+    )
+    async def _fetch_with_retry(
+        self, query: str, params: dict[str, Any]
+    ) -> tuple[httpx.Response, dict[str, Any]] | None:
+        """Выполняет HTTP запрос с автоматическим retry и exponential backoff"""
+        async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
+            try:
+                response = await client.get(self.base_url, params=params)
+                response.raise_for_status()
+                payload = response.json()
+                return (response, payload)
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code if exc.response else "?"
+                logger.warning("SerpAPI returned %s for query '%s'", status_code, query)
+                code = int(status_code) if isinstance(status_code, int) or str(status_code).isdigit() else None
+                await self._log("response", query, status_code=code, payload="error")
+                raise
+            except httpx.HTTPError as exc:
+                logger.warning("SerpAPI request failed for '%s': %s", query, exc)
+                await self._log("response", query, status_code=None, payload=str(exc))
+                raise
 
 
 class OpenAISearchProvider(SearchProvider):
@@ -155,7 +185,15 @@ class OpenAISearchProvider(SearchProvider):
         if not self.client:
             return []
 
+        # Проверяем кэш
+        cached = await SEARCH_CACHE.get(self.name, query, max_results=max_results, model=self.model)
+        if cached is not None:
+            return cached
+
         await self._maybe_warn_low_balance()
+
+        # Применяем rate limiting
+        await OPENAI_RATE_LIMITER.acquire()
 
         system_prompt = (
             "Sourcing assistant. Return JSON array: [{'title':'...', 'url':'...', 'summary':'...'}]. "
@@ -176,6 +214,28 @@ class OpenAISearchProvider(SearchProvider):
             "max_results": max_results,
         }
         await self._log("request", query, payload=request_log)
+
+        # Используем tenacity для retry
+        results = await self._search_with_retry(query, messages, max_results)
+
+        # Сохраняем в кэш
+        await SEARCH_CACHE.set(self.name, query, results, max_results=max_results, model=self.model)
+
+        return results
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type(Exception),
+        before_sleep=before_sleep_log(logger, "WARNING"),
+        reraise=True,
+    )
+    async def _search_with_retry(
+        self, query: str, messages: list[dict[str, str]], max_results: int
+    ) -> list[dict[str, Any]]:
+        """Выполняет поиск через OpenAI с автоматическим retry"""
+        if not self.client:
+            return []
 
         completion = await self.client.chat.completions.create(
             model=self.model,
@@ -216,9 +276,9 @@ class OpenAISearchProvider(SearchProvider):
                 "usage": completion.usage.model_dump() if hasattr(completion, "usage") and completion.usage else None,
                 "finish_reason": choice.finish_reason if hasattr(choice, "finish_reason") else None,
             },
-            "raw_content": output,  # Full text response from OpenAI
-            "parsed_data": data,  # Parsed JSON data
-            "results": results,  # All results (not truncated)
+            "raw_content": output,
+            "parsed_data": data,
+            "results": results,
             "results_count": len(results),
         }
         await self._log("response", query, status_code=200, payload=response_log)
@@ -253,7 +313,6 @@ class OpenAISearchProvider(SearchProvider):
 
 class GoogleCustomSearchProvider(SearchProvider):
     base_url = "https://www.googleapis.com/customsearch/v1"
-    _rate_limit = asyncio.Semaphore(1)
 
     def __init__(self) -> None:
         super().__init__()
@@ -270,6 +329,14 @@ class GoogleCustomSearchProvider(SearchProvider):
         if not (self.api_key and self.cx):
             return []
 
+        # Проверяем кэш
+        cached = await SEARCH_CACHE.get(self.name, query, max_results=max_results)
+        if cached is not None:
+            return cached
+
+        # Применяем rate limiting
+        await GOOGLE_CSE_RATE_LIMITER.acquire()
+
         params = {"key": self.api_key, "cx": self.cx, "q": query, "num": max_results}
         # Full request logging
         request_log = {
@@ -280,43 +347,13 @@ class GoogleCustomSearchProvider(SearchProvider):
             "max_results": max_results,
         }
         await self._log("request", query, payload=request_log)
-        async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
-            async with self._rate_limit:
-                response: httpx.Response | None = None
-                for attempt in range(3):
-                    try:
-                        response = await client.get(self.base_url, params=params)
-                        response.raise_for_status()
-                        break
-                    except httpx.HTTPStatusError as exc:
-                        status_code = exc.response.status_code if exc.response else "?"
-                        # Treat 429/503 as a signal to pause briefly, but avoid hammering the API.
-                        if status_code in {429, 503, "429", "503"} and attempt < 2:
-                            await asyncio.sleep(2.5 * (attempt + 1) + random.random())
-                            continue
-                        logger.warning(
-                            "Google Custom Search error %s for query '%s': %s",
-                            status_code,
-                            query,
-                            exc.response.text if exc.response else exc,
-                        )
-                        await self._log(
-                            "response",
-                            query,
-                            status_code=int(status_code) if isinstance(status_code, int) or str(status_code).isdigit() else None,
-                            payload=exc.response.text if exc.response else None,
-                        )
-                        return []
-                    except httpx.HTTPError as exc:
-                        if attempt < 2:
-                            await asyncio.sleep(2.0 * (attempt + 1) + random.random())
-                            continue
-                        logger.warning("Google Custom Search request failed for '%s': %s", query, exc)
-                        await self._log("response", query, status_code=None, payload=str(exc))
-                        return []
-                if response is None:
-                    return []
-                payload = response.json()
+
+        # Используем tenacity для retry
+        response_data = await self._fetch_with_retry(query, params)
+        if response_data is None:
+            return []
+
+        response, payload = response_data
 
         items = payload.get("items", [])
         results: list[dict[str, Any]] = []
@@ -335,19 +372,58 @@ class GoogleCustomSearchProvider(SearchProvider):
         response_log = {
             "status_code": response.status_code,
             "headers": dict(response.headers),
-            "full_response": payload,  # Complete API response
-            "results": results,  # All parsed results
+            "full_response": payload,
+            "results": results,
             "results_count": len(results),
             "total_items": len(items),
         }
         await self._log("response", query, status_code=response.status_code, payload=response_log)
 
+        # Сохраняем в кэш
+        await SEARCH_CACHE.set(self.name, query, results[:max_results], max_results=max_results)
+
         return results[:max_results]
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1.5, min=2, max=15),
+        retry=retry_if_exception_type((httpx.HTTPError, httpx.HTTPStatusError)),
+        before_sleep=before_sleep_log(logger, "WARNING"),
+        reraise=True,
+    )
+    async def _fetch_with_retry(
+        self, query: str, params: dict[str, Any]
+    ) -> tuple[httpx.Response, dict[str, Any]] | None:
+        """Выполняет HTTP запрос с автоматическим retry и exponential backoff"""
+        async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
+            try:
+                response = await client.get(self.base_url, params=params)
+                response.raise_for_status()
+                payload = response.json()
+                return (response, payload)
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code if exc.response else "?"
+                logger.warning(
+                    "Google Custom Search error %s for query '%s': %s",
+                    status_code,
+                    query,
+                    exc.response.text if exc.response else exc,
+                )
+                await self._log(
+                    "response",
+                    query,
+                    status_code=int(status_code) if isinstance(status_code, int) or str(status_code).isdigit() else None,
+                    payload=exc.response.text if exc.response else None,
+                )
+                raise
+            except httpx.HTTPError as exc:
+                logger.warning("Google Custom Search request failed for '%s': %s", query, exc)
+                await self._log("response", query, status_code=None, payload=str(exc))
+                raise
 
 
 class GoogleWebSearchProvider(SearchProvider):
     search_url = "https://www.google.com/search"
-    _rate_limit = asyncio.Semaphore(2)
 
     def __init__(self) -> None:
         super().__init__()
@@ -361,6 +437,14 @@ class GoogleWebSearchProvider(SearchProvider):
         }
 
     async def search(self, query: str, *, max_results: int = 5) -> list[dict[str, Any]]:
+        # Проверяем кэш
+        cached = await SEARCH_CACHE.get(self.name, query, max_results=max_results)
+        if cached is not None:
+            return cached
+
+        # Применяем rate limiting
+        await GOOGLE_WEB_RATE_LIMITER.acquire()
+
         params = {
             "q": query,
             "num": str(max_results * 2),  # fetch a few extras so we can filter redirects
@@ -375,40 +459,11 @@ class GoogleWebSearchProvider(SearchProvider):
             "max_results": max_results,
         }
         await self._log("request", query, payload=request_log)
-        async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
-            async with self._rate_limit:
-                response: httpx.Response | None = None
-                for attempt in range(4):
-                    try:
-                        response = await client.get(self.search_url, params=params, headers=self.headers)
-                        response.raise_for_status()
-                        break
-                    except httpx.HTTPStatusError as exc:
-                        status_code = exc.response.status_code if exc.response else "?"
-                        if status_code in {429, 503, "429", "503"} and attempt < 3:
-                            await asyncio.sleep(1.4 * (attempt + 1) + random.random())
-                            continue
-                        logger.warning(
-                            "Google web search returned %s for query '%s'",
-                            status_code,
-                            query,
-                        )
-                        await self._log(
-                            "response",
-                            query,
-                            status_code=int(status_code) if isinstance(status_code, int) or str(status_code).isdigit() else None,
-                            payload="error",
-                        )
-                        return []
-                    except httpx.HTTPError as exc:
-                        if attempt < 3:
-                            await asyncio.sleep(1.4 * (attempt + 1) + random.random())
-                            continue
-                        logger.warning("Google web search failed for '%s': %s", query, exc)
-                        await self._log("response", query, status_code=None, payload=str(exc))
-                        return []
-                if response is None:
-                    return []
+
+        # Используем tenacity для retry с exponential backoff
+        response = await self._fetch_with_retry(query, params)
+        if response is None:
+            return []
 
         soup = BeautifulSoup(response.text, "html.parser")
         results: list[dict[str, Any]] = []
@@ -432,12 +487,48 @@ class GoogleWebSearchProvider(SearchProvider):
             "headers": dict(response.headers),
             "html_length": len(response.text),
             "parsed_blocks": len(soup.select("div.g")),
-            "results": results,  # All parsed results
+            "results": results,
             "results_count": len(results),
         }
         await self._log("response", query, status_code=response.status_code, payload=response_log)
 
+        # Сохраняем в кэш
+        await SEARCH_CACHE.set(self.name, query, results, max_results=max_results)
+
         return results
+
+    @retry(
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((httpx.HTTPError, httpx.HTTPStatusError)),
+        before_sleep=before_sleep_log(logger, "WARNING"),
+        reraise=True,
+    )
+    async def _fetch_with_retry(self, query: str, params: dict[str, str]) -> httpx.Response | None:
+        """Выполняет HTTP запрос с автоматическим retry и exponential backoff"""
+        async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
+            try:
+                response = await client.get(self.search_url, params=params, headers=self.headers)
+                response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code if exc.response else "?"
+                logger.warning(
+                    "Google web search returned %s for query '%s'",
+                    status_code,
+                    query,
+                )
+                await self._log(
+                    "response",
+                    query,
+                    status_code=int(status_code) if isinstance(status_code, int) or str(status_code).isdigit() else None,
+                    payload="error",
+                )
+                raise
+            except httpx.HTTPError as exc:
+                logger.warning("Google web search failed for '%s': %s", query, exc)
+                await self._log("response", query, status_code=None, payload=str(exc))
+                raise
 
     def _clean_link(self, url: str | None) -> str | None:
         if not url:
