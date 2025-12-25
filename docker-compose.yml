@@ -13,13 +13,13 @@ services:
     volumes:
       - backend_data:/data
     ports:
-      - "8022:8000"
+      - "8022:8024"
 
   frontend:
     build:
       context: ./frontend
     environment:
-      - VITE_BACKEND_URL=http://backend:8000
+      - VITE_BACKEND_URL=http://backend:8024
       - VITE_API_BASE_URL=/api
     ports:
       - "5173:5173"
