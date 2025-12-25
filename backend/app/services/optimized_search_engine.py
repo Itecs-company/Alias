@@ -159,14 +159,27 @@ class OptimizedPartSearchEngine:
 
         logger.debug(f"Using {len(web_providers)} providers for web search (excluding OpenAI)")
 
-        # Формируем простые запросы
+        # Формируем умные запросы для поиска
         queries = []
+
         if part.manufacturer_hint:
+            # Если есть подсказка производителя - используем её
             latin_hint = normalize_manufacturer_name(part.manufacturer_hint)
             queries.append(f"{part.part_number} {part.manufacturer_hint}")
             if latin_hint != part.manufacturer_hint:
                 queries.append(f"{part.part_number} {latin_hint}")
-        queries.append(part.part_number)
+            # Добавляем запрос с артикулом + datasheet для улучшения релевантности
+            queries.append(f"{part.part_number} {part.manufacturer_hint} datasheet")
+        else:
+            # Если нет подсказки - делаем несколько вариантов запросов
+            # 1. Чистый артикул (базовый)
+            queries.append(part.part_number)
+            # 2. Артикул + manufacturer (помогает найти страницы с указанием производителя)
+            queries.append(f"{part.part_number} manufacturer")
+            # 3. Артикул + datasheet (помогает найти технические документы)
+            queries.append(f"{part.part_number} datasheet")
+            # 4. Артикул + electronics/semiconductor (уточняет контекст)
+            queries.append(f"{part.part_number} semiconductor")
 
         logger.debug(f"Generated {len(queries)} search queries: {queries}")
 
@@ -219,8 +232,10 @@ class OptimizedPartSearchEngine:
 
             # Анализируем метаданные (title + snippet)
             candidate = self._analyze_text_heuristically(metadata_text, part, url)
-            if candidate and candidate.confidence >= 0.80:
-                logger.info(f"Found manufacturer from metadata: {candidate.manufacturer}")
+            # Адаптивный порог: если нет подсказки производителя, снижаем требования
+            min_confidence = 0.70 if not part.manufacturer_hint else 0.80
+            if candidate and candidate.confidence >= min_confidence:
+                logger.info(f"Found manufacturer from metadata: {candidate.manufacturer} (confidence: {candidate.confidence:.2f})")
                 candidate.debug_info = f"Found in search result title/snippet: {title[:100]}"
                 return candidate
 
@@ -239,8 +254,10 @@ class OptimizedPartSearchEngine:
                     # Анализируем только начало контента (первые 3KB)
                     text_sample = response.text[:3000]
                     candidate = self._analyze_text_heuristically(text_sample, part, url)
-                    if candidate and candidate.confidence >= 0.80:
-                        logger.info(f"Found manufacturer from page content: {candidate.manufacturer}")
+                    # Адаптивный порог для контента страниц
+                    min_confidence = 0.70 if not part.manufacturer_hint else 0.80
+                    if candidate and candidate.confidence >= min_confidence:
+                        logger.info(f"Found manufacturer from page content: {candidate.manufacturer} (confidence: {candidate.confidence:.2f})")
                         return candidate
             except Exception as e:
                 logger.debug(f"Failed to fetch {url}: {e}")
@@ -482,6 +499,58 @@ class OptimizedPartSearchEngine:
             return None
         return None
 
+    def _extract_manufacturer_from_patterns(
+        self,
+        text: str,
+        part_number: str
+    ) -> tuple[str, float] | None:
+        """
+        Извлекает производителя из текста используя паттерны.
+        Возвращает (manufacturer, confidence) или None.
+        """
+        import re
+
+        text_lower = text.lower()
+        part_lower = part_number.lower()
+
+        # Проверяем наличие артикула в тексте
+        if part_lower not in text_lower and part_number.replace("-", "").replace(" ", "").lower() not in text_lower.replace("-", "").replace(" ", ""):
+            return None
+
+        # Паттерны для поиска производителя
+        patterns = [
+            # "Manufacturer: Fairchild"
+            r'manufacturer[:\s]+([a-z0-9\s\-/&]+?)(?:\s*[\n\|,]|\s{2,})',
+            # "Mfr: ON Semiconductor"
+            r'mfr[:\s]+([a-z0-9\s\-/&]+?)(?:\s*[\n\|,]|\s{2,})',
+            # "Brand: Fairchild"
+            r'brand[:\s]+([a-z0-9\s\-/&]+?)(?:\s*[\n\|,]|\s{2,})',
+            # "By Fairchild"
+            r'by\s+([a-z0-9\s\-/&]{3,30})(?:\s|$)',
+            # "Fairchild Semiconductor" в начале строки/предложения
+            r'^([a-z0-9\s\-/&]{3,30})\s+semiconductor',
+            # "Made by Fairchild"
+            r'made\s+by\s+([a-z0-9\s\-/&]{3,30})(?:\s|$)',
+        ]
+
+        for pattern in patterns:
+            matches = re.finditer(pattern, text_lower, re.MULTILINE | re.IGNORECASE)
+            for match in matches:
+                manufacturer = match.group(1).strip()
+                # Очищаем от лишних слов
+                manufacturer = re.sub(r'\s+(semiconductor|electronics|corporation|corp|inc|ltd|limited).*$', '', manufacturer, flags=re.IGNORECASE)
+                manufacturer = manufacturer.strip()
+
+                # Проверяем длину (должно быть разумное название)
+                if 2 <= len(manufacturer) <= 30 and not manufacturer.isdigit():
+                    # Проверяем, не является ли это стоп-словом
+                    stop_words = {'product', 'part', 'number', 'description', 'details', 'specification', 'category'}
+                    if manufacturer.lower() not in stop_words:
+                        logger.debug(f"Extracted manufacturer from pattern: '{manufacturer}'")
+                        return (manufacturer.title(), 0.75)  # Уверенность 75%
+
+        return None
+
     def _analyze_text_heuristically(
         self,
         text: str,
@@ -493,6 +562,18 @@ class OptimizedPartSearchEngine:
 
         # Нормализуем артикул для сравнения (убираем пробелы, дефисы)
         part_number_normalized = part.part_number.replace(" ", "").replace("-", "").replace("_", "").lower()
+
+        # НОВОЕ: Попытка извлечь производителя из паттернов (работает даже если его нет в базе)
+        pattern_result = self._extract_manufacturer_from_patterns(text, part.part_number)
+        if pattern_result:
+            manufacturer, confidence = pattern_result
+            return SearchCandidate(
+                manufacturer=manufacturer,
+                confidence=confidence,
+                source_url=url,
+                debug_info=f"Extracted manufacturer '{manufacturer}' from text patterns",
+                alias_used=part.manufacturer_hint
+            )
 
         # Проверяем известных производителей в тексте
         for known_mfr in KNOWN_MANUFACTURERS:
