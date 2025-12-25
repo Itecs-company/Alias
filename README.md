@@ -51,7 +51,7 @@ docker compose up --build
 
 После старта:
 
-- Backend FastAPI доступен на http://localhost:8000
+- Backend FastAPI доступен на http://localhost:8022
 - Web-интерфейс (Vite dev server) на http://localhost:5173
 - Фронтенд обращается к API по адресу из переменной `VITE_API_BASE_URL`.
   В контейнерном запуске значение установлено в `/api`, и Vite проксирует запросы к сервису backend.
@@ -93,7 +93,9 @@ uvicorn app.main:app --reload
 npm run dev
 ```
 
-Приложение будет доступно по адресу http://localhost:5173, API — http://localhost:8000.
+Приложение будет доступно по адресу http://localhost:5173.
+При локальном запуске API работает на http://localhost:8000 (порт по умолчанию для uvicorn).
+В Docker Compose API доступен на http://localhost:8022.
 
 ### Переменные окружения
 
