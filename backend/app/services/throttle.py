@@ -220,41 +220,39 @@ class SearchCache:
 
 # Глобальные экземпляры для использования в провайдерах
 
-# Google Web Search: консервативный лимит (100 запросов в день)
-# Распределяем: 100 запросов / 24 часа = ~4 запроса в час
-# Используем окно в 1 час с минимальным интервалом 2 секунды
+# Google Web Search: минимальный интервал между запросами без жёсткого лимита
+# Убрано ограничение на количество запросов в час (time_window), оставлен только min_interval
 GOOGLE_WEB_RATE_LIMITER = RateLimiter(
     RateLimitConfig(
-        max_requests=10,  # 10 запросов в час (консервативно)
-        time_window=3600.0,  # 1 час
+        max_requests=99999,  # Практически без ограничений
+        time_window=86400.0,  # 1 день (для учёта, но фактически не ограничивает)
         min_interval=2.0,  # Минимум 2 секунды между запросами
     )
 )
 
-# Google Custom Search: 100 запросов в день (официальный лимит)
+# Google Custom Search: минимальный интервал без жёсткого лимита
 GOOGLE_CSE_RATE_LIMITER = RateLimiter(
     RateLimitConfig(
-        max_requests=10,  # 10 запросов в час
-        time_window=3600.0,  # 1 час
+        max_requests=99999,  # Практически без ограничений
+        time_window=86400.0,  # 1 день
         min_interval=1.5,  # Минимум 1.5 секунды между запросами
     )
 )
 
-# SerpAPI: более щедрый лимит (зависит от плана)
+# SerpAPI: минимальный интервал без жёсткого лимита
 SERPAPI_RATE_LIMITER = RateLimiter(
     RateLimitConfig(
-        max_requests=20,  # 20 запросов в час
-        time_window=3600.0,  # 1 час
+        max_requests=99999,  # Практически без ограничений
+        time_window=86400.0,  # 1 день
         min_interval=1.0,  # Минимум 1 секунда между запросами
     )
 )
 
-# OpenAI: зависит от tier, используем консервативный лимит
-# Tier 1: 500 RPM, Tier 2: 5000 RPM
+# OpenAI: минимальный интервал без жёсткого лимита
 OPENAI_RATE_LIMITER = RateLimiter(
     RateLimitConfig(
-        max_requests=100,  # 100 запросов в минуту (консервативно для Tier 1)
-        time_window=60.0,  # 1 минута
+        max_requests=99999,  # Практически без ограничений
+        time_window=86400.0,  # 1 день
         min_interval=0.5,  # Минимум 0.5 секунды между запросами
     )
 )
