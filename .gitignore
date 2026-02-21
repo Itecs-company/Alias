@@ -20,3 +20,5 @@ backend/*.db-wal
 
 # OS
 .DS_Store
+rebuild.sh
+force_rebuild.sh

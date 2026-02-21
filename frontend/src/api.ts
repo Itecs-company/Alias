@@ -8,7 +8,9 @@ import {
   LoginResponse,
   CredentialsUpdatePayload,
   AuthenticatedUser,
-  SearchLog
+  SearchLog,
+  Settings,
+  SettingsUpdate
 } from './types'
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
@@ -117,4 +119,19 @@ export const fetchLogs = async (params: { provider?: string; direction?: string;
 
 export const deletePartById = async (id: number) => {
   await client.delete(`/parts/${id}`)
+}
+
+export const fetchSettings = async () => {
+  const response = await client.get<Settings>('/settings')
+  return response.data
+}
+
+export const updateSettings = async (settings: SettingsUpdate) => {
+  const response = await client.put<Settings>('/settings', settings)
+  return response.data
+}
+
+export const testTelegram = async (message: string = 'Тестовое сообщение') => {
+  const response = await client.post<{ status: string; message: string }>('/settings/test-telegram', { message })
+  return response.data
 }
