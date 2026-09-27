@@ -1016,8 +1016,31 @@ export function App() {
   const [tableSize, setTableSize] = useState<'small' | 'medium'>(() => savedSettings.tableSize || 'small')
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => savedSettings.fontSize || 'medium')
   const [rowHeight, setRowHeight] = useState<number>(() => savedSettings.rowHeight || 53)
-  const [fullscreenMode, setFullscreenMode] = useState<boolean>(() => savedSettings.fullscreenMode || false)
+  // Полноэкранный режим нельзя восстановить без действия пользователя, поэтому стартуем без него
+  const [fullscreenMode, setFullscreenMode] = useState<boolean>(false)
+  const productsSectionRef = useRef<HTMLDivElement | null>(null)
   const [fitToScreen, setFitToScreen] = useState<boolean>(() => savedSettings.fitToScreen ?? true)
+
+  useEffect(() => {
+    const handleFullscreenChange = () =>
+      setFullscreenMode(Boolean(document.fullscreenElement && document.fullscreenElement === productsSectionRef.current))
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen()
+      } else if (productsSectionRef.current?.requestFullscreen) {
+        await productsSectionRef.current.requestFullscreen()
+      } else {
+        setSnackbar('Полноэкранный режим не поддерживается браузером')
+      }
+    } catch {
+      setSnackbar('Не удалось переключить полноэкранный режим')
+    }
+  }
   const [tableContainerSize] = useState<{ width: number; height: number }>(
     () =>
       savedSettings.tableContainerSize || {
@@ -2092,7 +2115,7 @@ export function App() {
               <Stack direction="row" spacing={2} flexWrap="wrap">
                 <Button component="label" startIcon={<Upload />} variant="contained">
                   Загрузить Excel
-                  <input hidden type="file" accept=".xls,.xlsx" onChange={handleUpload} />
+                  <input hidden type="file" accept=".xls,.xlsx,.csv" onChange={handleUpload} />
                 </Button>
                 <Button startIcon={<FileDownload />} variant="outlined" onClick={() => handleExport('excel')}>
                   Экспорт Excel
@@ -2176,12 +2199,14 @@ export function App() {
           )}
 
           <Paper
+            ref={productsSectionRef}
             elevation={10}
             sx={{
               p: { xs: 3, md: 4 },
-              borderRadius: 4,
+              borderRadius: fullscreenMode ? 0 : 4,
               border: '1px solid',
-              borderColor: 'divider'
+              borderColor: 'divider',
+              ...(fullscreenMode ? { overflow: 'auto', bgcolor: 'background.default' } : {})
             }}
           >
             <Stack spacing={3}>
@@ -2199,7 +2224,7 @@ export function App() {
                     <IconButton
                       size="small"
                       color={fullscreenMode ? "primary" : "default"}
-                      onClick={() => setFullscreenMode(!fullscreenMode)}
+                      onClick={toggleFullscreen}
                       sx={{ border: '1px solid', borderColor: 'divider' }}
                     >
                       {fullscreenMode ? <FullscreenExit /> : <Fullscreen />}
