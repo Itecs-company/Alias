@@ -1,908 +1,909 @@
 """
-Оптимизированный поисковый движок с минимальным расходом токенов OpenAI.
+Поисковый движок AliasFinder: определение производителя по артикулу.
 
-Логика поиска:
-1. Простой поиск в интернете (без OpenAI)
-2. Если ничего не найдено → поиск документов/datasheets
-3. Скачивание документа
-4. Анализ документа через OpenAI (оптимизированный)
-5. Извлечение данных (артикул + производитель)
-6. Удаление документа после обработки
+Этапы (названия совпадают с интерфейсом и параметром ``stages`` API):
+
+1. ``Internet`` — веб-поиск (SerpAPI при наличии ключа, затем бесплатные
+   Yahoo → Bing → DuckDuckGo → Google; «мусорная» выдача без артикула
+   распознаётся и провайдер переключается). Сначала анализируются только метаданные выдачи
+   (домен, заголовок, сниппет, URL карточки дистрибьютора), и лишь при
+   недостаточной уверенности параллельно скачиваются 3–4 самых информативных
+   документа (даташиты, страницы производителя).
+2. ``googlesearch`` — Google Custom Search API (если настроен), только если
+   после первого этапа уверенность ниже порога.
+3. ``OpenAI`` — одна компактная JSON-подсказка по уже собранному контексту
+   (сниппеты + выдержки из документов, ~1000 токенов) для спорных случаев.
+
+Все признаки из разных источников агрегируются (см. :mod:`app.services.evidence`),
+поэтому итоговая уверенность отражает количество независимых подтверждений,
+а подсказка оператора используется как решающий голос для деталей, которые
+выпускают несколько производителей.
 """
 from __future__ import annotations
 
 import asyncio
-import io
-import json
-import tempfile
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
-from urllib.parse import urlparse
+import time
+from dataclasses import dataclass, field
+from typing import Any, Sequence
 
-import httpx
 from loguru import logger
-from openai import AsyncOpenAI
-from pypdf import PdfReader
-from rapidfuzz import fuzz
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.http import httpx_client_kwargs
+from app.core.database import ci_equals
 from app.models.part import Part
 from app.schemas.part import PartBase, SearchResult, StageStatus
-from app.services.document_parser import extract_text_from_html, extract_text_from_pdf, fetch_bytes
+from app.services.ai import ai_available, chat_json
+from app.services.document_parser import document_to_text, fetch_document
+from app.services.evidence import (
+    CandidateScore,
+    Evidence,
+    SearchHit,
+    evidence_from_document,
+    evidence_from_hit,
+    rank_candidates,
+)
 from app.services.log_recorder import SearchLogRecorder
-from app.services.search_engine import (
-    DOMAIN_MANUFACTURER_HINTS,
-    KNOWN_MANUFACTURERS,
-    ManufacturerInfoExtractor,
-    ManufacturerResolver,
+from app.services.manufacturer_service import ManufacturerInfo, ManufacturerInfoExtractor, ManufacturerResolver
+from app.services.manufacturers import (
+    evaluate_match,
+    hostname,
+    is_distributor,
+    manufacturer_from_url,
+    manufacturer_similarity,
     normalize_manufacturer_name,
+    part_number_key,
+    part_number_strength,
+    query_part_number,
 )
 from app.services.search_providers import (
     SearchProvider,
-    get_default_providers,
-    get_fallback_provider,
     get_google_provider,
+    get_serpapi_provider,
+    get_web_providers,
 )
 
 settings = get_settings()
 
+STAGE_INTERNET = "Internet"
+STAGE_GOOGLE = "googlesearch"
+STAGE_OPENAI = "OpenAI"
+ALL_STAGES: tuple[str, ...] = (STAGE_INTERNET, STAGE_GOOGLE, STAGE_OPENAI)
+
+_STAGE_ALIASES = {
+    "internet": STAGE_INTERNET,
+    "web": STAGE_INTERNET,
+    "document search": STAGE_INTERNET,
+    "googlesearch": STAGE_GOOGLE,
+    "google": STAGE_GOOGLE,
+    "google-custom-search": STAGE_GOOGLE,
+    "openai": STAGE_OPENAI,
+    "ai": STAGE_OPENAI,
+    "ai analysis": STAGE_OPENAI,
+    "chatgpt": STAGE_OPENAI,
+}
+
+# Пороги уверенности
+INTERNET_THRESHOLD = 0.75     # этап Internet считается успешным
+METADATA_THRESHOLD = 0.8      # достаточно метаданных выдачи, документы не скачиваем
+GOOGLE_THRESHOLD = 0.67       # этап googlesearch считается успешным
+OPENAI_TRIGGER = 0.8          # ниже этой уверенности результат проверяется через OpenAI
+OPENAI_THRESHOLD = 0.6        # этап OpenAI считается успешным
+MIN_ACCEPT = 0.45             # ниже — производитель не считается найденным
+
+MAX_DOCUMENTS = 4
+DOCUMENT_TIMEOUT = 8.0         # общий бюджет на одну пачку документов, с
+FOLLOWUP_DOCUMENT_TIMEOUT = 6.0
+MAX_HITS_PER_QUERY = 10
+
+_MARKETPLACES = ("amazon.", "ebay.", "aliexpress.", "ozon.", "wildberries.", "avito.", "market.yandex.", "alibaba.")
+# Сайты, которые отдают ботам 403/JS-заглушку: их улики уже извлечены из URL/заголовка
+_NO_FETCH_HOSTS = ("digikey.", "mouser.", "arrow.com", "octopart.", "findchips.", "lcsc.com", "avnet.", "farnell.",
+                   "newark.", "rs-online.", "reddit.", "youtube.", "facebook.", "linkedin.")
+
+
+def normalize_stages(stages: Sequence[str] | None) -> list[str] | None:
+    """Приводит список этапов из запроса к каноническим именам (None — все этапы)."""
+    if not stages:
+        return None
+    resolved: list[str] = []
+    for stage in stages:
+        name = _STAGE_ALIASES.get(str(stage).strip().lower())
+        if name and name not in resolved:
+            resolved.append(name)
+    return resolved or None
+
 
 @dataclass
-class SearchCandidate:
-    """Кандидат результата поиска"""
-    manufacturer: str
-    confidence: float
-    source_url: str
-    debug_info: str
-    alias_used: str | None = None
+class PartContext:
+    """Рабочее состояние поиска одного артикула."""
 
+    part_number: str
+    hint: str | None
+    hits: list[SearchHit] = field(default_factory=list)
+    evidence: list[Evidence] = field(default_factory=list)
+    documents: dict[str, str] = field(default_factory=dict)
+    attempted_documents: set[str] = field(default_factory=set)
+    executed_queries: set[tuple[str, str]] = field(default_factory=set)
+    providers_used: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
-@dataclass
-class DocumentInfo:
-    """Информация о скачанном документе"""
-    url: str
-    file_path: Path
-    content_type: str | None
-    size_bytes: int
+    @property
+    def query_part(self) -> str:
+        return query_part_number(self.part_number)
+
+    def add_hits(self, provider: str, query: str, results: list[dict[str, Any]]) -> int:
+        known = {hit.url for hit in self.hits}
+        added = 0
+        for rank, item in enumerate(results):
+            url = item.get("link")
+            if not url or url in known:
+                continue
+            known.add(url)
+            hit = SearchHit(
+                url=url,
+                title=item.get("title") or "",
+                snippet=item.get("snippet") or "",
+                provider=provider,
+                query=query,
+                rank=rank,
+            )
+            self.hits.append(hit)
+            self.evidence.extend(evidence_from_hit(hit, self.part_number, self.hint))
+            added += 1
+        if provider not in self.providers_used:
+            self.providers_used.append(provider)
+        return added
+
+    def ranked(self) -> list[CandidateScore]:
+        return rank_candidates(self.evidence, self.hint)
+
+    def best(self) -> CandidateScore | None:
+        ranked = self.ranked()
+        return ranked[0] if ranked else None
+
+    def best_confidence(self) -> float:
+        best = self.best()
+        return best.confidence if best else 0.0
 
 
 class OptimizedPartSearchEngine:
-    """
-    Оптимизированный движок поиска с минимальным использованием токенов.
+    """Поиск производителя с минимальным трафиком и расходом токенов."""
 
-    Стратегия:
-    1. Быстрый поиск по интернету через эвристики (без AI)
-    2. Поиск документов, если первый этап не дал результатов
-    3. Анализ документов через OpenAI с оптимизированными промптами
-    """
-
-    # Ключевые слова для поиска документов
-    DATASHEET_KEYWORDS = ["datasheet", "pdf", "specification", "spec sheet"]
-
-    # Максимальный размер текста для отправки в OpenAI (символы)
-    MAX_TEXT_SIZE_FOR_AI = 3000
-
-    # Максимальный размер документа для скачивания (10 MB)
-    MAX_DOCUMENT_SIZE = 10 * 1024 * 1024
-
-    def __init__(self, session: AsyncSession):
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        web_providers: list[SearchProvider] | None = None,
+        serpapi_provider: SearchProvider | None | bool = True,
+        google_provider: SearchProvider | None = None,
+        use_ai: bool | None = None,
+        concurrency: int | None = None,
+    ):
         self.session = session
         self.log_recorder = SearchLogRecorder(session)
+        self.web_providers = web_providers if web_providers is not None else get_web_providers()
+        if serpapi_provider is True:
+            serpapi_provider = get_serpapi_provider()
+        self.serpapi_provider: SearchProvider | None = serpapi_provider or None
+        self.google_provider = google_provider or get_google_provider()
+        self.use_ai = ai_available() if use_ai is None else use_ai
+        self.concurrency = concurrency or settings.search_concurrency
 
-        # Инициализируем все доступные провайдеры
-        self.providers = get_default_providers()  # GoogleWebSearch + optional SerpAPI
-        self.google_provider = get_google_provider()  # Google Custom Search
-        self.fallback_provider = get_fallback_provider()  # OpenAI
-
+        # AsyncSession не допускает конкурентных операций — все обращения к БД
+        # выполняются под этой блокировкой, сетевые запросы идут параллельно.
+        self._db_lock = asyncio.Lock()
         self.resolver = ManufacturerResolver(session)
-        self.info_extractor = ManufacturerInfoExtractor()
+        self.info_extractor = ManufacturerInfoExtractor(
+            session, db_lock=self._db_lock, recorder=self.log_recorder, use_ai=self.use_ai
+        )
+        for provider in self._all_providers():
+            provider.set_recorder(self.log_recorder)
 
-        # Подключаем логирование к провайдерам
-        self._attach_recorder()
+    # --- провайдеры ----------------------------------------------------------------------
+    def _all_providers(self) -> list[SearchProvider]:
+        providers = list(self.web_providers)
+        if self.serpapi_provider:
+            providers.insert(0, self.serpapi_provider)
+        if self.google_provider:
+            providers.append(self.google_provider)
+        return providers
 
-        # Логируем доступные провайдеры
-        all_providers = self._get_all_providers()
-        logger.info(f"Initialized OptimizedPartSearchEngine with {len(all_providers)} providers:")
-        for provider in all_providers:
-            logger.info(f"  - {provider.name}")
+    def _internet_providers(self) -> list[SearchProvider]:
+        providers = [provider for provider in self.web_providers]
+        if self.serpapi_provider:
+            providers.insert(0, self.serpapi_provider)
+        return providers
 
-        # OpenAI client для анализа документов
-        self.openai_client: AsyncOpenAI | None = None
-        if settings.openai_api_key:
-            http_client = httpx.AsyncClient(**httpx_client_kwargs())
-            self.openai_client = AsyncOpenAI(
-                api_key=settings.openai_api_key,
-                http_client=http_client
+    @staticmethod
+    def _is_relevant(ctx: PartContext, results: list[dict[str, Any]]) -> bool:
+        """Есть ли в выдаче хоть одно упоминание артикула (защита от «мусорной» выдачи)."""
+        return any(
+            part_number_strength(
+                ctx.part_number, f"{item.get('title') or ''} {item.get('snippet') or ''} {item.get('link') or ''}"
             )
+            > 0
+            for item in results
+        )
 
-        # Временная директория для документов
-        self.temp_dir = Path(tempfile.gettempdir()) / "aliasfinder_docs"
-        self.temp_dir.mkdir(exist_ok=True)
+    async def _search_queries(
+        self, ctx: PartContext, providers: list[SearchProvider], queries: list[str], *, fallback: bool = True
+    ) -> tuple[int, str | None]:
+        """Выполняет запросы параллельно у первого доступного провайдера.
 
-    def _attach_recorder(self) -> None:
-        """Подключает логирование к всем провайдерам."""
-        all_providers = [*self.providers, self.google_provider, self.fallback_provider]
-        for provider in all_providers:
-            if hasattr(provider, "set_recorder"):
-                provider.set_recorder(self.log_recorder)
-
-    def _get_all_providers(self) -> list[SearchProvider]:
-        """Возвращает все доступные провайдеры для поиска."""
-        return [*self.providers, self.google_provider, self.fallback_provider]
-
-    async def _simple_web_search(
-        self,
-        part: PartBase,
-        providers: list[SearchProvider]
-    ) -> SearchCandidate | None:
+        Если провайдер ничего не вернул или вернул выдачу без единого упоминания
+        артикула (капча, анти-бот «мусор»), пробуется следующий. Провайдер, чья
+        выдача оказалась мусором там, где другой нашёл артикул, помечается и
+        после нескольких повторов временно отключается.
+        Возвращает (кол-во новых результатов, имя провайдера).
         """
-        Этап 1: Простой поиск в интернете без использования AI.
-        Использует эвристики и базу данных производителей.
-        """
-        logger.info(f"Stage 1: Simple web search for {part.part_number}")
+        irrelevant: list[SearchProvider] = []
+        for provider in providers:
+            if not provider.available:
+                continue
+            pending = [query for query in dict.fromkeys(queries) if (provider.name, query.lower()) not in ctx.executed_queries]
+            if not pending:
+                return 0, provider.name
+            for query in pending:
+                ctx.executed_queries.add((provider.name, query.lower()))
+            responses = await asyncio.gather(
+                *(provider.search(query, max_results=MAX_HITS_PER_QUERY) for query in pending),
+                return_exceptions=True,
+            )
+            added = 0
+            relevant = False
+            junk = False
+            for query, response in zip(pending, responses):
+                if isinstance(response, BaseException):
+                    logger.warning("Provider {name} failed: {exc!r}", name=provider.name, exc=response)
+                    continue
+                if not response:
+                    continue
+                if self._is_relevant(ctx, response):
+                    relevant = True
+                    added += ctx.add_hits(provider.name, query, response)
+                else:
+                    junk = True
+                    provider.forget(query, MAX_HITS_PER_QUERY)
+            if relevant:
+                provider.mark_relevant()
+                for failed in irrelevant:
+                    failed.mark_irrelevant()
+                return added, provider.name
+            if junk:
+                irrelevant.append(provider)
+            if not fallback:
+                return 0, provider.name
+        return 0, None
 
-        if not providers:
-            logger.warning("No search providers available")
-            return None
-
-        # Фильтруем провайдеров: НЕ используем OpenAI для веб-поиска
-        # OpenAI используется только для анализа документов (Stage 3)
-        web_providers = [p for p in providers if p.name != "openai"]
-
-        if not web_providers:
-            logger.warning("No web search providers available (OpenAI excluded)")
-            return None
-
-        logger.debug(f"Using {len(web_providers)} providers for web search (excluding OpenAI)")
-
-        # Формируем простые запросы
+    # --- запросы ---------------------------------------------------------------------------
+    @staticmethod
+    def _primary_queries(ctx: PartContext) -> list[str]:
         queries = []
-        if part.manufacturer_hint:
-            latin_hint = normalize_manufacturer_name(part.manufacturer_hint)
-            queries.append(f"{part.part_number} {part.manufacturer_hint}")
-            if latin_hint != part.manufacturer_hint:
-                queries.append(f"{part.part_number} {latin_hint}")
-        queries.append(part.part_number)
+        if ctx.hint:
+            queries.append(f"{ctx.query_part} {ctx.hint}")
+        queries.append(ctx.query_part)
+        return queries
 
-        logger.debug(f"Generated {len(queries)} search queries: {queries}")
-
-        # Собираем результаты с метаданными (title, snippet)
-        search_results = []
-        for provider in web_providers:
-            logger.debug(f"Using provider: {provider.name}")
-            for query in queries:
-                try:
-                    logger.debug(f"Searching: {query}")
-                    results = await provider.search(query, max_results=5)
-                    logger.debug(f"Provider {provider.name} returned {len(results)} results")
-
-                    # Логируем первый результат для отладки
-                    if results:
-                        first_result = results[0]
-                        logger.debug(f"First result: title='{first_result.get('title', '')[:80]}', link='{first_result.get('link', '')}'")
-
-                    search_results.extend(results)
-                    if len(search_results) >= 10:
-                        break
-                except Exception as e:
-                    logger.error(f"Provider {provider.name} failed: {e}", exc_info=True)
-            if len(search_results) >= 10:
-                break
-
-        logger.info(f"Collected {len(search_results)} search results from {len(web_providers)} web providers")
-
-        # ЭТАП 1: Анализ метаданных (title + snippet) БЕЗ скачивания страниц
-        for result in search_results[:10]:
-            url = result.get("link")
-            if not url:
-                continue
-
-            title = result.get("title", "")
-            snippet = result.get("snippet", "")
-            metadata_text = f"{title} {snippet}".lower()
-
-            # Проверяем домен
-            manufacturer = self._get_manufacturer_from_domain(url)
-            if manufacturer:
-                logger.info(f"Found manufacturer from domain: {manufacturer}")
-                return SearchCandidate(
-                    manufacturer=manufacturer,
-                    confidence=0.95,
-                    source_url=url,
-                    debug_info=f"Identified from domain: {urlparse(url).hostname}",
-                    alias_used=part.manufacturer_hint if part.manufacturer_hint else None
-                )
-
-            # Анализируем метаданные (title + snippet)
-            candidate = self._analyze_text_heuristically(metadata_text, part, url)
-            if candidate and candidate.confidence >= 0.80:
-                logger.info(f"Found manufacturer from metadata: {candidate.manufacturer}")
-                candidate.debug_info = f"Found in search result title/snippet: {title[:100]}"
-                return candidate
-
-        # ЭТАП 2: Скачиваем контент только если метаданные не дали результата
-        logger.debug("Metadata analysis failed, fetching page content...")
-        for result in search_results[:5]:  # Ограничиваем до 5 URL
-            url = result.get("link")
-            if not url:
-                continue
-
-            try:
-                async with httpx.AsyncClient(**httpx_client_kwargs()) as client:
-                    response = await client.get(url, follow_redirects=True, timeout=10)
-                    response.raise_for_status()
-
-                    # Анализируем только начало контента (первые 3KB)
-                    text_sample = response.text[:3000]
-                    candidate = self._analyze_text_heuristically(text_sample, part, url)
-                    if candidate and candidate.confidence >= 0.80:
-                        logger.info(f"Found manufacturer from page content: {candidate.manufacturer}")
-                        return candidate
-            except Exception as e:
-                logger.debug(f"Failed to fetch {url}: {e}")
-                continue
-
-        return None
-
-    async def _search_for_documents(
-        self,
-        part: PartBase,
-        providers: list[SearchProvider]
-    ) -> list[str]:
-        """
-        Этап 2: Поиск документов/datasheets.
-        Возвращает список URL документов для загрузки.
-        """
-        logger.info(f"Stage 2: Searching for documents for {part.part_number}")
-
-        # Фильтруем провайдеров: НЕ используем OpenAI для поиска документов
-        web_providers = [p for p in providers if p.name != "openai"]
-
-        if not web_providers:
-            logger.warning("No web providers for document search")
-            return []
-
-        # Формируем запросы специально для поиска документов
-        queries = []
-        base_query = part.part_number
-
-        if part.manufacturer_hint:
-            latin_hint = normalize_manufacturer_name(part.manufacturer_hint)
-            for keyword in self.DATASHEET_KEYWORDS:
-                queries.append(f"{base_query} {part.manufacturer_hint} {keyword}")
-                if latin_hint != part.manufacturer_hint:
-                    queries.append(f"{base_query} {latin_hint} {keyword}")
+    @staticmethod
+    def _secondary_queries(ctx: PartContext) -> list[str]:
+        queries = [f"{ctx.query_part} datasheet"]
+        if ctx.hint:
+            canonical = normalize_manufacturer_name(ctx.hint)
+            if canonical and canonical.lower() != ctx.hint.lower():
+                queries.insert(0, f"{ctx.query_part} {canonical}")
         else:
-            for keyword in self.DATASHEET_KEYWORDS:
-                queries.append(f"{base_query} {keyword}")
+            queries.append(f"{ctx.query_part} manufacturer")
+        return queries
 
-        logger.debug(f"Document search queries: {queries[:3]}...")  # Log first 3
+    # --- документы ----------------------------------------------------------------------------
+    def _document_candidates(self, ctx: PartContext, limit: int) -> list[SearchHit]:
+        scored: list[tuple[float, SearchHit]] = []
+        for hit in ctx.hits:
+            if hit.url in ctx.attempted_documents:
+                continue
+            host = hit.host
+            if any(marker in host for marker in _MARKETPLACES + _NO_FETCH_HOSTS):
+                continue
+            url_lower = hit.url.lower()
+            strength = part_number_strength(ctx.part_number, f"{hit.title} {hit.snippet} {hit.url}")
+            if strength <= 0:
+                continue
+            score = 2.0 * strength
+            if url_lower.split("?")[0].endswith(".pdf") or "datasheet" in url_lower or "datasheet" in hit.title.lower():
+                score += 2.0
+            if manufacturer_from_url(hit.url):
+                score += 2.5
+            elif is_distributor(hit.url):
+                score -= 0.5  # тяжёлые JS-страницы, часто блокируют ботов
+            score -= 0.1 * hit.rank
+            scored.append((score, hit))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [hit for score, hit in scored[:limit] if score > 1.0]
 
-        # Собираем URLs документов
-        doc_urls = []
-        for provider in web_providers:
-            for query in queries:
-                try:
-                    results = await provider.search(query, max_results=3)
-                    for result in results:
-                        url = result.get("link")
-                        if url and self._is_likely_document(url, result.get("title", "")):
-                            doc_urls.append(url)
-                    if len(doc_urls) >= 5:
-                        break
-                except Exception as e:
-                    logger.debug(f"Provider {provider.name} failed during document search: {e}")
-            if len(doc_urls) >= 5:
+    async def _analyze_documents(
+        self, ctx: PartContext, limit: int = MAX_DOCUMENTS, timeout: float = DOCUMENT_TIMEOUT
+    ) -> int:
+        candidates = self._document_candidates(ctx, limit)
+        if not candidates:
+            return 0
+        for hit in candidates:
+            ctx.attempted_documents.add(hit.url)
+
+        async def load(hit: SearchHit) -> tuple[SearchHit, str]:
+            document = await fetch_document(hit.url, timeout=timeout - 1.0)
+            if document is None:
+                return hit, ""
+            text = await asyncio.to_thread(document_to_text, document)
+            return hit, text
+
+        tasks = [asyncio.ensure_future(load(hit)) for hit in candidates]
+        done, pending = await asyncio.wait(tasks, timeout=timeout)
+        for task in pending:
+            task.cancel()
+        analyzed = 0
+        for task in done:
+            if task.cancelled() or task.exception() is not None:
+                continue
+            hit, text = task.result()
+            if not text:
+                continue
+            analyzed += 1
+            ctx.documents[hit.url] = text[:300_000]
+            ctx.evidence.extend(evidence_from_document(hit.url, text, ctx.part_number, ctx.hint))
+        return analyzed
+
+    # --- этапы ----------------------------------------------------------------------------------
+    @staticmethod
+    def _stage_status(
+        name: str,
+        ctx: PartContext,
+        threshold: float,
+        *,
+        providers: list[str],
+        urls: int,
+        message: str,
+    ) -> StageStatus:
+        best = ctx.best()
+        if best is None or best.confidence < MIN_ACCEPT * 0.5:
+            status = "no-results"
+            confidence = best.confidence if best else None
+        elif best.confidence >= threshold:
+            status = "success"
+            confidence = best.confidence
+        else:
+            status = "low-confidence"
+            confidence = best.confidence
+        if best is not None:
+            message = f"{message}. Лидер: {best.manufacturer} ({best.confidence:.2f})"
+        return StageStatus(
+            name=name,
+            status=status,
+            provider=", ".join(providers) or None,
+            confidence=confidence,
+            urls_considered=urls,
+            message=message,
+        )
+
+    async def _stage_internet(self, ctx: PartContext) -> StageStatus:
+        providers = self._internet_providers()
+        if not any(provider.available for provider in providers):
+            return StageStatus(
+                name=STAGE_INTERNET,
+                status="skipped",
+                message="Нет доступных поисковых провайдеров (заблокированы или отключены)",
+            )
+        before = len(ctx.hits)
+        used: list[str] = []
+        _, provider_name = await self._search_queries(ctx, providers, self._primary_queries(ctx))
+        if provider_name:
+            used.append(provider_name)
+        documents = 0
+        if ctx.best_confidence() < METADATA_THRESHOLD:
+            # Второй заход: даташит/каноническое имя + скачивание документов параллельно
+            secondary = asyncio.ensure_future(self._search_queries(ctx, providers, self._secondary_queries(ctx)))
+            documents = await self._analyze_documents(ctx)
+            _, provider_name = await secondary
+            if provider_name and provider_name not in used:
+                used.append(provider_name)
+            if ctx.best_confidence() < INTERNET_THRESHOLD:
+                documents += await self._analyze_documents(ctx, limit=2, timeout=FOLLOWUP_DOCUMENT_TIMEOUT)
+        found = len(ctx.hits) - before
+        message = f"Результатов поиска: {found}"
+        if documents:
+            message += f", проанализировано документов: {documents}"
+        if not found:
+            message = "Поиск не вернул релевантных результатов"
+        return self._stage_status(STAGE_INTERNET, ctx, INTERNET_THRESHOLD, providers=used, urls=found, message=message)
+
+    async def _stage_google(self, ctx: PartContext) -> StageStatus:
+        provider = self.google_provider
+        if provider is None or not provider.configured:
+            return StageStatus(name=STAGE_GOOGLE, status="skipped", message="Google Custom Search не настроен")
+        if not provider.available:
+            return StageStatus(name=STAGE_GOOGLE, status="skipped", message="Google Custom Search временно недоступен (лимит/ошибка)")
+        before = len(ctx.hits)
+        queries = self._primary_queries(ctx)
+        await self._search_queries(ctx, [provider], queries, fallback=False)
+        documents = 0
+        if ctx.best_confidence() < GOOGLE_THRESHOLD:
+            documents = await self._analyze_documents(ctx, limit=2, timeout=FOLLOWUP_DOCUMENT_TIMEOUT)
+        found = len(ctx.hits) - before
+        message = f"Новых результатов: {found}" if found else "Google не вернул новых результатов"
+        if documents:
+            message += f", проанализировано документов: {documents}"
+        return self._stage_status(STAGE_GOOGLE, ctx, GOOGLE_THRESHOLD, providers=[provider.name], urls=found, message=message)
+
+    def _ai_prompt(self, ctx: PartContext) -> list[dict[str, str]]:
+        lines = [f"Part number: {ctx.part_number}"]
+        if ctx.hint:
+            lines.append(f"Operator's manufacturer hint: {ctx.hint}")
+        relevant = sorted(
+            ctx.hits,
+            key=lambda hit: (-part_number_strength(ctx.part_number, f"{hit.title} {hit.snippet} {hit.url}"), hit.rank),
+        )[:8]
+        if relevant:
+            lines.append("Search results:")
+            for index, hit in enumerate(relevant, 1):
+                snippet = " ".join(hit.snippet.split())[:170]
+                lines.append(f"{index}. {hit.title[:100]} | {hit.url[:110]} | {snippet}")
+        excerpts: list[str] = []
+        budget = 1600
+        for url, text in ctx.documents.items():
+            if budget <= 0:
                 break
+            excerpt = _document_excerpt(text, ctx.part_number, min(600, budget))
+            if excerpt:
+                excerpts.append(f"[{hostname(url)}] {excerpt}")
+                budget -= len(excerpt)
+        if excerpts:
+            lines.append("Document excerpts:")
+            lines.extend(excerpts)
+        ranked = ctx.ranked()[:3]
+        if ranked:
+            lines.append("Heuristic candidates: " + ", ".join(f"{c.manufacturer} ({c.confidence:.2f})" for c in ranked))
+        system = (
+            "You identify the original manufacturer (brand owner) of a product by its part number. "
+            "Use the provided search results and excerpts as evidence; distributors, marketplaces and datasheet "
+            "archives are not manufacturers. If several manufacturers produce this part and the operator's hint "
+            "is one of them, choose the hint. If the evidence is insufficient, use your own knowledge but lower "
+            "the confidence. Reply with JSON only: {\"manufacturer\": string or null, \"confidence\": number 0..1, "
+            "\"source_url\": string or null, \"reason\": \"short\"}."
+        )
+        return [{"role": "system", "content": system}, {"role": "user", "content": "\n".join(lines)}]
 
-        # Удаляем дубликаты
-        unique_urls = list(dict.fromkeys(doc_urls))
-        logger.info(f"Found {len(unique_urls)} potential document URLs")
-
-        return unique_urls[:3]  # Ограничиваем до 3 документов для экономии
-
-    async def _download_document(self, url: str) -> DocumentInfo | None:
-        """
-        Скачивает документ во временный файл.
-        Возвращает информацию о документе или None при ошибке.
-        """
-        logger.info(f"Downloading document from {url}")
-
+    async def _stage_openai(self, ctx: PartContext) -> StageStatus:
+        if not self.use_ai:
+            return StageStatus(name=STAGE_OPENAI, status="skipped", message="OpenAI не настроен (нет OPENAI_API_KEY)")
+        context_note = ""
+        if not ctx.hits:
+            # Этап запущен отдельно: соберём минимальный контекст одним заходом веб-поиска
+            await self._search_queries(ctx, self._internet_providers(), self._primary_queries(ctx))
+            if ctx.hits:
+                context_note = f"; контекст: {len(ctx.hits)} результатов веб-поиска"
+        messages = self._ai_prompt(ctx)
+        data = await chat_json(
+            messages, max_tokens=160, recorder=self.log_recorder, provider="openai", query=ctx.part_number
+        )
+        if data is None:
+            return StageStatus(name=STAGE_OPENAI, status="no-results", provider="openai", message="OpenAI не вернул ответ (см. логи)")
+        raw_name = data.get("manufacturer")
+        name = normalize_manufacturer_name(str(raw_name)) if raw_name else ""
+        if not name or name.lower() in {"null", "none", "unknown", "n/a"}:
+            return self._stage_status(
+                STAGE_OPENAI, ctx, OPENAI_THRESHOLD, providers=["openai"], urls=len(ctx.hits),
+                message="OpenAI не смог определить производителя" + context_note,
+            )
         try:
-            # Используем существующую функцию fetch_bytes
-            result = await fetch_bytes(url)
-            if not result:
-                return None
+            ai_confidence = min(1.0, max(0.0, float(data.get("confidence", 0.6))))
+        except (TypeError, ValueError):
+            ai_confidence = 0.6
+        supported = any(
+            candidate.support >= 0.3 and manufacturer_similarity(name, candidate.manufacturer) >= 0.9
+            for candidate in ctx.ranked()
+        )
+        if supported:
+            weight = ai_confidence * 0.85
+        elif ctx.hits:
+            weight = ai_confidence * 0.6
+        else:
+            weight = min(ai_confidence, 0.75) * 0.8
+        source_url = data.get("source_url")
+        known_urls = {hit.url for hit in ctx.hits}
+        if not isinstance(source_url, str) or source_url not in known_urls:
+            source_url = None
+        reason = str(data.get("reason") or "")[:200]
+        ctx.evidence.append(Evidence(name, weight, source_url or "openai://analysis", "ai", reason or "ответ OpenAI"))
+        ctx.notes.append(f"OpenAI: {name} ({ai_confidence:.2f}) — {reason}")
+        message = f"OpenAI: {name} (уверенность модели {ai_confidence:.2f}"
+        message += ", подтверждено выдачей)" if supported else ")"
+        return self._stage_status(
+            STAGE_OPENAI, ctx, OPENAI_THRESHOLD, providers=["openai"], urls=len(ctx.hits), message=message + context_note
+        )
 
-            data, content_type = result
+    # --- БД ---------------------------------------------------------------------------------------
+    async def _find_existing(self, part_number: str) -> Part | None:
+        stmt = (
+            select(Part)
+            .where(ci_equals(Part.part_number, part_number))
+            .order_by(Part.manufacturer_name.is_(None), Part.id.desc())
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalars().first()
 
-            # Проверяем размер
-            if len(data) > self.MAX_DOCUMENT_SIZE:
-                logger.warning(f"Document too large: {len(data)} bytes")
-                return None
-
-            # Сохраняем во временный файл
-            file_path = self.temp_dir / f"doc_{hash(url)}.tmp"
-            file_path.write_bytes(data)
-
-            return DocumentInfo(
-                url=url,
-                file_path=file_path,
-                content_type=content_type,
-                size_bytes=len(data)
-            )
-        except Exception as e:
-            logger.error(f"Failed to download document from {url}: {e}")
-            return None
-
-    async def _analyze_document_with_ai(
-        self,
-        doc_info: DocumentInfo,
-        part: PartBase
-    ) -> SearchCandidate | None:
-        """
-        Этап 3: Анализ документа через OpenAI с оптимизацией токенов.
-
-        Стратегия оптимизации:
-        1. Извлекаем только важные части документа
-        2. Используем краткий промпт
-        3. Ограничиваем размер контекста
-        4. Используем JSON mode для точного парсинга
-        """
-        if not self.openai_client:
-            logger.warning("OpenAI client not available")
-            return None
-
-        logger.info(f"Stage 3: Analyzing document with AI")
-
+    async def _commit(self) -> None:
+        self.log_recorder.flush()
         try:
-            # Извлекаем текст из документа
-            data = doc_info.file_path.read_bytes()
-
-            # Определяем тип и извлекаем текст
-            is_pdf = data.lstrip().startswith(b"%PDF") or (
-                doc_info.content_type and "pdf" in doc_info.content_type.lower()
-            )
-
-            if is_pdf:
-                text = extract_text_from_pdf(data)
-            else:
-                text = extract_text_from_html(data)
-
-            logger.debug(f"Extracted {len(text)} characters from document")
-
-            # Оптимизация: извлекаем только релевантные части
-            optimized_text = self._extract_relevant_text(text, part)
-
-            # Ограничиваем размер текста для экономии токенов
-            if len(optimized_text) > self.MAX_TEXT_SIZE_FOR_AI:
-                optimized_text = optimized_text[:self.MAX_TEXT_SIZE_FOR_AI]
-                logger.info(f"Text truncated from {len(text)} to {self.MAX_TEXT_SIZE_FOR_AI} characters (~{self.MAX_TEXT_SIZE_FOR_AI//4} tokens)")
-            else:
-                logger.debug(f"Optimized text: {len(optimized_text)} chars (~{len(optimized_text)//4} tokens)")
-
-            logger.debug(f"Text preview: {optimized_text[:150]}...")
-
-            # Оптимизированный промпт (минимум токенов)
-            system_prompt = (
-                "Extract manufacturer and part number from datasheet. "
-                "Return JSON: {\"manufacturer\": \"name\", \"part_number\": \"number\", \"confidence\": 0.0-1.0}"
-            )
-
-            user_prompt = f"Datasheet text:\n{optimized_text}\n\nTarget part: {part.part_number}"
-
-            # Логируем запрос
-            await self.log_recorder.record(
-                provider="openai-document",
-                direction="request",
-                query=part.part_number,
-                payload=json.dumps({
-                    "model": settings.openai_model_default,
-                    "text_length": len(optimized_text),
-                    "document_url": doc_info.url
-                })
-            )
-
-            # Вызываем OpenAI
-            completion = await self.openai_client.chat.completions.create(
-                model=settings.openai_model_default,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0,
-                max_tokens=150,  # Минимум токенов для ответа
-                response_format={"type": "json_object"}
-            )
-
-            # Парсим ответ
-            if not completion.choices[0].message or not completion.choices[0].message.content:
-                return None
-
-            response_text = completion.choices[0].message.content
-            result = json.loads(response_text)
-
-            # Логируем ответ
-            await self.log_recorder.record(
-                provider="openai-document",
-                direction="response",
-                query=part.part_number,
-                status_code=200,
-                payload=response_text
-            )
-
-            manufacturer = result.get("manufacturer")
-            confidence = float(result.get("confidence", 0.7))
-
-            if not manufacturer:
-                return None
-
-            # Нормализуем название производителя
-            normalized = normalize_manufacturer_name(manufacturer)
-
-            logger.info(f"AI identified manufacturer: {normalized} (confidence: {confidence})")
-
-            return SearchCandidate(
-                manufacturer=normalized,
-                confidence=confidence,
-                source_url=doc_info.url,
-                debug_info=f"Extracted from document via AI (tokens used: ~{len(optimized_text)//4})",
-                alias_used=part.manufacturer_hint if part.manufacturer_hint else None
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to analyze document with AI: {e}")
-            return None
-
-    async def _cleanup_document(self, doc_info: DocumentInfo) -> None:
-        """Удаляет временный документ после обработки."""
-        try:
-            if doc_info.file_path.exists():
-                doc_info.file_path.unlink()
-                logger.debug(f"Cleaned up document: {doc_info.file_path}")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup document {doc_info.file_path}: {e}")
-
-    def _get_manufacturer_from_domain(self, url: str) -> str | None:
-        """Определяет производителя по домену URL."""
-        try:
-            hostname = urlparse(url).hostname
-            if not hostname:
-                return None
-
-            hostname = hostname.lower()
-            for domain, manufacturer in DOMAIN_MANUFACTURER_HINTS.items():
-                if hostname == domain or hostname.endswith(f".{domain}"):
-                    return manufacturer
+            await self.session.commit()
         except Exception:
-            return None
-        return None
+            await self.session.rollback()
+            raise
 
-    def _analyze_text_heuristically(
-        self,
-        text: str,
-        part: PartBase,
-        url: str
-    ) -> SearchCandidate | None:
-        """Анализирует текст с помощью эвристик без AI."""
-        text_lower = text.lower()
-
-        # Нормализуем артикул для сравнения (убираем пробелы, дефисы)
-        part_number_normalized = part.part_number.replace(" ", "").replace("-", "").replace("_", "").lower()
-
-        # Проверяем известных производителей в тексте
-        for known_mfr in KNOWN_MANUFACTURERS:
-            if known_mfr.lower() in text_lower:
-                # Проверяем артикул в разных форматах
-                # 1. Точное совпадение
-                if part.part_number.lower() in text_lower:
-                    return SearchCandidate(
-                        manufacturer=known_mfr,
-                        confidence=0.90,
-                        source_url=url,
-                        debug_info=f"Found '{known_mfr}' with exact part number match",
-                        alias_used=part.manufacturer_hint
-                    )
-
-                # 2. Нормализованное совпадение (без пробелов/дефисов)
-                text_normalized = text_lower.replace(" ", "").replace("-", "").replace("_", "")
-                if part_number_normalized in text_normalized:
-                    return SearchCandidate(
-                        manufacturer=known_mfr,
-                        confidence=0.85,
-                        source_url=url,
-                        debug_info=f"Found '{known_mfr}' with normalized part number match",
-                        alias_used=part.manufacturer_hint
-                    )
-
-        # Если manufacturer_hint указан, проверяем его в тексте
-        if part.manufacturer_hint:
-            hint_lower = part.manufacturer_hint.lower()
-            if hint_lower in text_lower:
-                # Проверяем совпадение артикула
-                if part.part_number.lower() in text_lower or part_number_normalized in text_lower.replace(" ", "").replace("-", ""):
-                    return SearchCandidate(
-                        manufacturer=part.manufacturer_hint,
-                        confidence=0.80,
-                        source_url=url,
-                        debug_info=f"Found manufacturer hint '{part.manufacturer_hint}' with part number",
-                        alias_used=part.manufacturer_hint
-                    )
-
-        return None
-
-    def _is_likely_document(self, url: str, title: str) -> bool:
-        """Проверяет, является ли URL вероятно документом."""
-        url_lower = url.lower()
-        title_lower = title.lower()
-
-        # Проверяем расширение файла
-        if any(url_lower.endswith(ext) for ext in [".pdf", ".doc", ".docx"]):
-            return True
-
-        # Проверяем ключевые слова
-        for keyword in self.DATASHEET_KEYWORDS:
-            if keyword in url_lower or keyword in title_lower:
-                return True
-
-        return False
-
-    def _extract_relevant_text(self, text: str, part: PartBase) -> str:
-        """
-        Извлекает только релевантные части текста для экономии токенов.
-
-        Стратегия:
-        1. Ищем упоминания артикула
-        2. Берем контекст вокруг упоминаний
-        3. Добавляем первые строки (обычно там header/title)
-        """
-        lines = text.splitlines()
-        relevant_lines = []
-
-        # Добавляем первые 10 строк (обычно содержат заголовок и производителя)
-        relevant_lines.extend(lines[:10])
-
-        # Ищем строки с упоминанием артикула
-        part_lower = part.part_number.lower()
-        for i, line in enumerate(lines):
-            if part_lower in line.lower():
-                # Берем контекст: 2 строки до и 2 после
-                start = max(0, i - 2)
-                end = min(len(lines), i + 3)
-                relevant_lines.extend(lines[start:end])
-
-        # Если есть подсказка производителя, ищем его упоминания
-        if part.manufacturer_hint:
-            hint_lower = part.manufacturer_hint.lower()
-            for i, line in enumerate(lines):
-                if hint_lower in line.lower():
-                    start = max(0, i - 1)
-                    end = min(len(lines), i + 2)
-                    relevant_lines.extend(lines[start:end])
-
-        # Удаляем дубликаты, сохраняя порядок
-        seen = set()
-        unique_lines = []
-        for line in relevant_lines:
-            if line not in seen and line.strip():
-                seen.add(line)
-                unique_lines.append(line)
-
-        return "\n".join(unique_lines)
-
-    def _evaluate_match(
-        self,
-        submitted: str | None,
-        resolved: str | None
-    ) -> tuple[str | None, float | None]:
-        """Оценивает совпадение между поданным и найденным производителем."""
-        if not submitted:
-            return None, None
-        if not resolved:
-            return "pending", None
-
-        score = fuzz.WRatio(submitted, resolved)
-        status = "matched" if score >= 70 else "mismatch"
-        return status, score / 100
-
+    # --- основной сценарий -----------------------------------------------------------------------------
     async def search_part(
         self,
         part: PartBase,
         *,
-        debug: bool = False
+        debug: bool = False,
+        stages: Sequence[str] | None = None,
     ) -> SearchResult:
-        """
-        Основной метод поиска с оптимизированной логикой.
+        started = time.monotonic()
+        part_number = " ".join(part.part_number.split())
+        hint = " ".join((part.manufacturer_hint or "").split()) or None
+        selected = normalize_stages(stages)
+        forced = selected is not None
 
-        Порядок выполнения:
-        1. Простой веб-поиск (эвристики)
-        2. Поиск документов
-        3. Анализ документов через OpenAI (если нужно)
-        """
+        async with self._db_lock:
+            existing = await self._find_existing(part_number)
+
+        if not forced and existing is not None and existing.manufacturer_name:
+            match_status, match_confidence = evaluate_match(hint, existing.manufacturer_name)
+            if not hint or match_status == "matched":
+                return await self._cached_result(existing, part_number, hint, match_status, match_confidence, debug)
+
+        ctx = PartContext(part_number=part_number, hint=hint)
         stage_history: list[StageStatus] = []
-        final_candidate: SearchCandidate | None = None
-        final_stage: str | None = None
-
-        # Проверяем, есть ли уже результат в базе
-        stmt = select(Part).where(Part.part_number == part.part_number).order_by(Part.id.desc())
-        existing_part = (await self.session.execute(stmt)).scalars().first()
-
-        if existing_part and existing_part.manufacturer_name:
-            match_status, match_confidence = self._evaluate_match(
-                part.manufacturer_hint,
-                existing_part.manufacturer_name
-            )
-
-            if not part.manufacturer_hint or match_status == "matched":
-                stage_history.append(
-                    StageStatus(
-                        name="Internet",
-                        status="skipped",
-                        message="Использован ранее найденный результат из БД"
-                    )
-                )
-                stage_history.append(
-                    StageStatus(
-                        name="Document Search",
-                        status="skipped",
-                        message="Использован ранее найденный результат из БД"
-                    )
-                )
-                stage_history.append(
-                    StageStatus(
-                        name="AI Analysis",
-                        status="skipped",
-                        message="Использован ранее найденный результат из БД"
-                    )
-                )
-
-                return SearchResult(
-                    part_number=part.part_number,
-                    manufacturer_name=existing_part.manufacturer_name,
-                    alias_used=existing_part.alias_used,
-                    confidence=existing_part.confidence,
-                    source_url=existing_part.source_url,
-                    debug_log=existing_part.debug_log if debug else None,
-                    search_stage="cache",
-                    stage_history=stage_history,
-                    submitted_manufacturer=part.manufacturer_hint,
-                    match_status=match_status,
-                    match_confidence=match_confidence
-                )
-
-        # Этап 1: Простой веб-поиск
-        try:
-            candidate = await self._simple_web_search(part, self._get_all_providers())
-            if candidate:
-                final_candidate = candidate
-                final_stage = "Internet"
-                stage_history.append(
-                    StageStatus(
-                        name="Internet",
-                        status="success",
-                        confidence=candidate.confidence,
-                        provider="heuristics",
-                        message="Производитель найден через простой поиск"
-                    )
-                )
-                # Пропускаем остальные этапы
-                stage_history.append(
-                    StageStatus(
-                        name="Document Search",
-                        status="skipped",
-                        message="Не требуется, результат найден на предыдущем этапе"
-                    )
-                )
-                stage_history.append(
-                    StageStatus(
-                        name="AI Analysis",
-                        status="skipped",
-                        message="Не требуется, результат найден на предыдущем этапе"
-                    )
-                )
-            else:
-                stage_history.append(
-                    StageStatus(
-                        name="Internet",
-                        status="no-results",
-                        message="Простой поиск не дал результатов, переход к поиску документов"
-                    )
-                )
-        except Exception as e:
-            logger.error(f"Stage 1 (Simple Search) failed: {e}")
-            stage_history.append(
-                StageStatus(
-                    name="Internet",
-                    status="no-results",
-                    message=f"Ошибка поиска: {str(e)}"
-                )
-            )
-
-        # Этап 2: Поиск и анализ документов (только если этап 1 не дал результатов)
-        if not final_candidate:
-            try:
-                doc_urls = await self._search_for_documents(part, self._get_all_providers())
-
-                if doc_urls:
-                    stage_history.append(
-                        StageStatus(
-                            name="Document Search",
-                            status="success",
-                            urls_considered=len(doc_urls),
-                            message=f"Найдено {len(doc_urls)} документов для анализа"
-                        )
-                    )
-
-                    # Этап 3: Анализ документов через AI
-                    for doc_url in doc_urls:
-                        doc_info = await self._download_document(doc_url)
-                        if not doc_info:
-                            continue
-
-                        try:
-                            candidate = await self._analyze_document_with_ai(doc_info, part)
-                            if candidate:
-                                final_candidate = candidate
-                                final_stage = "AI Analysis"
-                                stage_history.append(
-                                    StageStatus(
-                                        name="AI Analysis",
-                                        status="success",
-                                        confidence=candidate.confidence,
-                                        provider="openai-document",
-                                        message=f"Производитель извлечен из документа: {doc_url}"
-                                    )
-                                )
-                                break
-                        finally:
-                            # Всегда удаляем документ после обработки
-                            await self._cleanup_document(doc_info)
-
-                    if not final_candidate:
-                        stage_history.append(
-                            StageStatus(
-                                name="AI Analysis",
-                                status="no-results",
-                                message="AI не смог извлечь производителя из документов"
-                            )
-                        )
+        success_stage: str | None = None
+        for stage in ALL_STAGES:
+            if forced and stage not in selected:
+                stage_history.append(StageStatus(name=stage, status="skipped", message="Этап не выбран"))
+                continue
+            if success_stage and not forced:
+                if stage == STAGE_OPENAI and ctx.best_confidence() < OPENAI_TRIGGER:
+                    pass  # перепроверяем сомнительный результат через OpenAI
                 else:
                     stage_history.append(
-                        StageStatus(
-                            name="Document Search",
-                            status="no-results",
-                            message="Документы не найдены"
-                        )
+                        StageStatus(name=stage, status="skipped", message=f"Не требуется: результат найден на этапе {success_stage}")
                     )
-                    stage_history.append(
-                        StageStatus(
-                            name="AI Analysis",
-                            status="skipped",
-                            message="Нет документов для анализа"
-                        )
-                    )
-            except Exception as e:
-                logger.error(f"Stage 2/3 (Document Search/AI) failed: {e}")
-                stage_history.append(
-                    StageStatus(
-                        name="Document Search",
-                        status="no-results",
-                        message=f"Ошибка: {str(e)}"
-                    )
-                )
-                stage_history.append(
-                    StageStatus(
-                        name="AI Analysis",
-                        status="no-results",
-                        message="Не выполнен из-за ошибки на предыдущем этапе"
-                    )
-                )
+                    continue
+            try:
+                if stage == STAGE_INTERNET:
+                    status = await self._stage_internet(ctx)
+                elif stage == STAGE_GOOGLE:
+                    status = await self._stage_google(ctx)
+                else:
+                    status = await self._stage_openai(ctx)
+            except Exception as exc:  # noqa: BLE001 - ошибка этапа не должна прерывать поиск
+                logger.exception("Stage {stage} failed for {part}", stage=stage, part=part_number)
+                status = StageStatus(name=stage, status="no-results", message=f"Ошибка этапа: {exc}")
+            stage_history.append(status)
+            if status.status == "success" and success_stage is None:
+                success_stage = stage
 
-        # Если ничего не найдено
-        if not final_candidate:
-            submitted = part.manufacturer_hint
-            match_status: str | None = None
-            match_confidence: float | None = None
-
-            if submitted:
-                target = existing_part or Part(part_number=part.part_number)
-                if not existing_part:
-                    self.session.add(target)
-                target.submitted_manufacturer = submitted
-                target.match_status = "pending"
-                target.match_confidence = None
-                target.debug_log = "No manufacturer found after all stages"
-                target.stage_history = [stage.dict() for stage in stage_history]  # Сохраняем историю этапов
-                await self.session.flush()
-
-            return SearchResult(
-                part_number=part.part_number,
-                manufacturer_name=None,
-                alias_used=part.manufacturer_hint,
-                confidence=None,
-                source_url=None,
-                debug_log="No manufacturer found" if debug else None,
-                search_stage=None,
-                stage_history=stage_history,
-                submitted_manufacturer=submitted,
-                match_status="pending",
-                match_confidence=None
+        best = ctx.best()
+        if best is not None and best.confidence < MIN_ACCEPT:
+            best = None
+        final_stage = success_stage
+        if best is not None and final_stage is None:
+            final_stage = next(
+                (s.name for s in reversed(stage_history) if s.status in {"success", "low-confidence"}), None
             )
+        elapsed = time.monotonic() - started
+        logger.info(
+            "Search {part}: {result} in {elapsed:.1f}s (hits={hits}, docs={docs})",
+            part=part_number,
+            result=f"{best.manufacturer} ({best.confidence:.2f})" if best else "not found",
+            elapsed=elapsed,
+            hits=len(ctx.hits),
+            docs=len(ctx.documents),
+        )
+        debug_text = self._debug_text(ctx, best, elapsed) if debug else None
 
-        # Сохраняем результат
-        normalized_manufacturer = normalize_manufacturer_name(final_candidate.manufacturer)
-        manufacturer = await self.resolver.resolve(normalized_manufacturer)
+        if best is None:
+            return await self._persist_not_found(existing, part_number, hint, stage_history, debug_text)
 
-        if final_candidate.alias_used:
-            await self.resolver.sync_aliases(manufacturer, [final_candidate.alias_used])
+        info = await self.info_extractor.extract_info(best.manufacturer)
+        return await self._persist_found(existing, part_number, hint, best, final_stage, stage_history, info, debug_text)
 
-        manufacturer_name = manufacturer.name
+    async def _cached_result(
+        self,
+        existing: Part,
+        part_number: str,
+        hint: str | None,
+        match_status: str | None,
+        match_confidence: float | None,
+        debug: bool,
+    ) -> SearchResult:
+        message = "Использован ранее найденный результат из БД"
+        stage_history = [StageStatus(name=stage, status="skipped", message=message) for stage in ALL_STAGES]
+        async with self._db_lock:
+            try:
+                row = await self._find_existing(part_number)
+                if row is None:  # строку удалили параллельно
+                    row = Part(part_number=part_number)
+                    self.session.add(row)
+                if hint:
+                    row.submitted_manufacturer = hint
+                    row.match_status = match_status
+                    row.match_confidence = match_confidence
+                    await self._commit()
+                snapshot = _snapshot(row)
+                debug_log = row.debug_log if debug else None
+            except Exception:
+                await self.session.rollback()
+                raise
+        return SearchResult(
+            **snapshot,
+            debug_log=debug_log,
+            stage_history=stage_history,
+        ).model_copy(update={"search_stage": "cache"})
 
-        # Извлекаем дополнительную информацию о производителе
-        manufacturer_info = await self.info_extractor.extract_info(manufacturer_name)
+    async def _persist_not_found(
+        self,
+        existing: Part | None,
+        part_number: str,
+        hint: str | None,
+        stage_history: list[StageStatus],
+        debug_text: str | None,
+    ) -> SearchResult:
+        async with self._db_lock:
+            try:
+                target = await self._find_existing(part_number)
+                if target is None:
+                    target = Part(part_number=part_number)
+                    self.session.add(target)
+                if hint:
+                    target.submitted_manufacturer = hint
+                previous = target.manufacturer_name
+                match_status, match_confidence = evaluate_match(target.submitted_manufacturer, previous)
+                target.match_status = match_status
+                target.match_confidence = match_confidence
+                target.stage_history = [stage.model_dump() for stage in stage_history]
+                if previous is None:
+                    target.search_stage = None
+                    target.debug_log = debug_text
+                await self._commit()
+                snapshot = _snapshot(target)
+            except Exception:
+                await self.session.rollback()
+                raise
 
-        if existing_part:
-            target = existing_part
-            target.manufacturer = manufacturer
-        else:
-            target = Part(part_number=part.part_number, manufacturer=manufacturer)
-            self.session.add(target)
-
-        match_status, match_confidence = self._evaluate_match(
-            part.manufacturer_hint,
-            manufacturer_name
+        note = "Производитель не найден"
+        if snapshot["manufacturer_name"]:
+            note += "; сохранён ранее найденный результат"
+        return SearchResult(
+            part_number=snapshot["part_number"],
+            manufacturer_name=snapshot["manufacturer_name"],
+            alias_used=snapshot["alias_used"],
+            submitted_manufacturer=snapshot["submitted_manufacturer"],
+            match_status=snapshot["match_status"],
+            match_confidence=snapshot["match_confidence"],
+            confidence=snapshot["confidence"],
+            source_url=snapshot["source_url"],
+            debug_log=f"{note}\n{debug_text}" if debug_text else None,
+            search_stage=snapshot["search_stage"],
+            stage_history=stage_history,
+            what_produces=snapshot["what_produces"],
+            website=snapshot["website"],
+            manufacturer_aliases=snapshot["manufacturer_aliases"],
+            country=snapshot["country"],
         )
 
-        target.manufacturer_name = manufacturer_name
-        target.alias_used = final_candidate.alias_used
-        target.submitted_manufacturer = part.manufacturer_hint
-        target.match_status = match_status
-        target.match_confidence = match_confidence
-        target.confidence = final_candidate.confidence
-        target.source_url = final_candidate.source_url
-        target.debug_log = final_candidate.debug_info if debug else None
-        target.search_stage = final_stage
-        target.stage_history = [stage.dict() for stage in stage_history]  # Сохраняем историю этапов
-        target.what_produces = manufacturer_info.what_produces
-        target.website = manufacturer_info.website
-        target.manufacturer_aliases = manufacturer_info.manufacturer_aliases
-        target.country = manufacturer_info.country
+    async def _persist_found(
+        self,
+        existing: Part | None,
+        part_number: str,
+        hint: str | None,
+        best: CandidateScore,
+        final_stage: str | None,
+        stage_history: list[StageStatus],
+        info: ManufacturerInfo,
+        debug_text: str | None,
+    ) -> SearchResult:
+        match_status, match_confidence = evaluate_match(hint, best.manufacturer)
+        alias_used = hint if hint and match_status == "matched" else None
+        evidence = best.best_evidence
+        source_url = evidence.source_url if evidence and evidence.source_url.startswith("http") else None
+        if source_url is None:
+            source_url = next((item.source_url for item in best.evidence if item.source_url.startswith("http")), None)
+        summary = f"{best.manufacturer}: {best.describe()}"
 
-        await self.session.flush()
+        async with self._db_lock:
+            try:
+                manufacturer_name = await self._write_found_row(
+                    part_number, hint, best, alias_used, source_url, final_stage, stage_history, info,
+                    debug_text or summary,
+                )
+            except Exception:
+                await self.session.rollback()
+                raise
 
         return SearchResult(
-            part_number=part.part_number,
+            part_number=part_number,
             manufacturer_name=manufacturer_name,
-            alias_used=final_candidate.alias_used,
-            confidence=final_candidate.confidence,
-            source_url=final_candidate.source_url,
-            debug_log=final_candidate.debug_info if debug else None,
-            search_stage=final_stage,
-            stage_history=stage_history,
-            submitted_manufacturer=part.manufacturer_hint,
+            alias_used=alias_used,
+            submitted_manufacturer=hint,
             match_status=match_status,
             match_confidence=match_confidence,
-            what_produces=manufacturer_info.what_produces,
-            website=manufacturer_info.website,
-            manufacturer_aliases=manufacturer_info.manufacturer_aliases,
-            country=manufacturer_info.country
+            confidence=best.confidence,
+            source_url=source_url,
+            debug_log=debug_text,
+            search_stage=final_stage,
+            stage_history=stage_history,
+            what_produces=info.what_produces,
+            website=info.website,
+            manufacturer_aliases=info.manufacturer_aliases,
+            country=info.country,
         )
+
+    async def _write_found_row(
+        self,
+        part_number: str,
+        hint: str | None,
+        best: CandidateScore,
+        alias_used: str | None,
+        source_url: str | None,
+        final_stage: str | None,
+        stage_history: list[StageStatus],
+        info: ManufacturerInfo,
+        debug_log: str,
+    ) -> str:
+        """Сохраняет найденного производителя (вызывать под ``_db_lock``)."""
+        manufacturer = await self.resolver.resolve(best.manufacturer)
+        if alias_used and alias_used.lower() != manufacturer.name.lower():
+            await self.resolver.sync_aliases(manufacturer, [alias_used])
+        target = await self._find_existing(part_number)
+        if target is None:
+            target = Part(part_number=part_number)
+            self.session.add(target)
+        target.manufacturer_id = manufacturer.id
+        target.manufacturer_name = manufacturer.name
+        target.alias_used = alias_used
+        if hint:
+            target.submitted_manufacturer = hint
+        status_for_row, confidence_for_row = evaluate_match(target.submitted_manufacturer, manufacturer.name)
+        target.match_status = status_for_row
+        target.match_confidence = confidence_for_row
+        target.confidence = best.confidence
+        target.source_url = source_url
+        target.debug_log = debug_log
+        target.search_stage = final_stage
+        target.stage_history = [stage.model_dump() for stage in stage_history]
+        target.what_produces = info.what_produces
+        target.website = info.website
+        target.manufacturer_aliases = info.manufacturer_aliases
+        target.country = info.country
+        await self._commit()
+        return manufacturer.name
+
+    @staticmethod
+    def _debug_text(ctx: PartContext, best: CandidateScore | None, elapsed: float) -> str:
+        lines = [
+            f"Артикул: {ctx.part_number}" + (f", подсказка: {ctx.hint}" if ctx.hint else ""),
+            f"Время: {elapsed:.1f} с; провайдеры: {', '.join(ctx.providers_used) or '—'}",
+            f"Запросы: {'; '.join(sorted({query for _, query in ctx.executed_queries})) or '—'}",
+            f"Результатов: {len(ctx.hits)}, документов: {len(ctx.documents)}",
+        ]
+        ranked = ctx.ranked()[:5]
+        if ranked:
+            lines.append("Кандидаты:")
+            for candidate in ranked:
+                lines.append(
+                    f"  • {candidate.manufacturer}: уверенность {candidate.confidence:.2f}, "
+                    f"поддержка {candidate.support:.2f} — {candidate.describe(3)}"
+                )
+        if best is None:
+            lines.append("Итог: производитель не найден")
+        lines.extend(ctx.notes)
+        return "\n".join(lines)
 
     async def search_many(
         self,
-        items: list[PartBase],
+        items: Sequence[PartBase],
         *,
-        debug: bool = False
+        debug: bool = False,
+        stages: Sequence[str] | None = None,
     ) -> list[SearchResult]:
-        """Поиск множества деталей с ограничением параллельности."""
-        semaphore = asyncio.Semaphore(3)  # Ограничиваем 3 параллельными запросами
+        """Поиск нескольких артикулов параллельно; одинаковые позиции ищутся один раз."""
+        selected = normalize_stages(stages)
+        keys: list[tuple[str, str]] = []
+        unique: dict[tuple[str, str], PartBase] = {}
+        for item in items:
+            key = (part_number_key(item.part_number) or item.part_number.strip().lower(),
+                   normalize_manufacturer_name(item.manufacturer_hint).lower())
+            keys.append(key)
+            unique.setdefault(key, item)
+
+        semaphore = asyncio.Semaphore(self.concurrency)
 
         async def run(item: PartBase) -> SearchResult:
             async with semaphore:
-                return await self.search_part(item, debug=debug)
+                try:
+                    return await self.search_part(item, debug=debug, stages=selected)
+                except Exception as exc:  # noqa: BLE001 - одна позиция не должна валить весь пакет
+                    logger.exception("Search failed for {part}", part=item.part_number)
+                    return _error_result(item, exc)
 
-        return await asyncio.gather(*(run(item) for item in items))
+        results = await asyncio.gather(*(run(item) for item in unique.values()))
+        by_key = dict(zip(unique.keys(), results))
+        output: list[SearchResult] = []
+        for item, key in zip(items, keys):
+            result = by_key[key]
+            if result.part_number != item.part_number:
+                result = result.model_copy(update={"part_number": item.part_number})
+            output.append(result)
+        return output
+
+
+def _document_excerpt(text: str, part_number: str, limit: int) -> str:
+    """Короткий фрагмент документа вокруг первого упоминания артикула."""
+    key = part_number_key(part_number)
+    if not key:
+        return ""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        if part_number_strength(part_number, line) > 0:
+            window = " ".join(lines[max(0, index - 2): index + 4])
+            return " ".join(window.split())[:limit]
+    return " ".join(" ".join(lines[:6]).split())[:limit]
+
+
+def _snapshot(part: Part) -> dict[str, Any]:
+    return {
+        "part_number": part.part_number,
+        "manufacturer_name": part.manufacturer_name,
+        "alias_used": part.alias_used,
+        "submitted_manufacturer": part.submitted_manufacturer,
+        "match_status": part.match_status,
+        "match_confidence": part.match_confidence,
+        "confidence": part.confidence,
+        "source_url": part.source_url,
+        "search_stage": part.search_stage,
+        "what_produces": part.what_produces,
+        "website": part.website,
+        "manufacturer_aliases": part.manufacturer_aliases,
+        "country": part.country,
+    }
+
+
+def _error_result(item: PartBase, exc: Exception) -> SearchResult:
+    hint = (item.manufacturer_hint or "").strip() or None
+    return SearchResult(
+        part_number=item.part_number,
+        manufacturer_name=None,
+        alias_used=None,
+        submitted_manufacturer=hint,
+        match_status="pending" if hint else None,
+        match_confidence=None,
+        confidence=None,
+        source_url=None,
+        debug_log=None,
+        search_stage=None,
+        stage_history=[StageStatus(name=STAGE_INTERNET, status="no-results", message=f"Ошибка поиска: {exc}")],
+    )
+
+
+# Совместимость: старое имя класса
+PartSearchEngine = OptimizedPartSearchEngine
+
+__all__ = [
+    "ALL_STAGES",
+    "OptimizedPartSearchEngine",
+    "PartContext",
+    "PartSearchEngine",
+    "STAGE_GOOGLE",
+    "STAGE_INTERNET",
+    "STAGE_OPENAI",
+    "normalize_stages",
+]

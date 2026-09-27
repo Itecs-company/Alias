@@ -88,3 +88,21 @@ export interface SearchLog {
   payload?: string | null
   created_at: string
 }
+
+export interface SystemSettings {
+  id: number
+  telegram_bot_token?: string | null
+  telegram_chat_id?: string | null
+  telegram_enabled: boolean
+  openai_balance_threshold?: number | null
+  google_balance_threshold?: number | null
+  notify_on_errors: boolean
+  notify_on_low_balance: boolean
+}
+
+export type SystemSettingsUpdate = Partial<Omit<SystemSettings, 'id'>>
+
+export interface TelegramTestResponse {
+  status: string
+  message: string
+}

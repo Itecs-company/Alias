@@ -4,10 +4,12 @@ from pathlib import Path
 from typing import List
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
+
     app_name: str = "AliasFinder"
     debug: bool = False
     database_url: str = Field(default="sqlite+aiosqlite:///./alias.db")
@@ -18,6 +20,10 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model_default: str = Field(default="gpt-4.1")
     openai_balance_threshold_usd: float | None = None
+    # Бесплатные поисковики в порядке приоритета: yahoo, bing, duckduckgo, google
+    web_search_providers: str = Field(default="yahoo,bing,duckduckgo,google")
+    # Сколько артикулов обрабатывается параллельно в одном запросе /search
+    search_concurrency: int = Field(default=4, ge=1, le=16)
     allow_insecure_ssl: bool = Field(default=False)
     proxy_host: str | None = None
     proxy_port: int | None = None
@@ -33,9 +39,13 @@ class Settings(BaseSettings):
     admin_username: str = Field(default="admin")
     admin_password: str = Field(default="Admin2025")
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    @field_validator("openai_balance_threshold_usd", "proxy_port", mode="before")
+    @classmethod
+    def empty_string_to_none(cls, value: object) -> object:
+        # В .env.example эти переменные заданы пустыми строками
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator("allowed_origins", mode="before")
     @classmethod

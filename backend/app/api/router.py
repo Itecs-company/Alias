@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import hmac
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
+from passlib.exc import UnknownHashError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.database import ci_equals
+from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.part import Part
 from app.models.search_log import SearchLog
 from app.models.settings import Settings
@@ -29,12 +34,9 @@ from app.schemas.part import (
 from app.schemas.settings import SettingsRead, SettingsUpdate, TelegramTestRequest
 from app.services.exporter import export_parts_to_excel, export_parts_to_pdf
 from app.services.importer import import_parts_from_excel
-from app.services.search_engine import PartSearchEngine
+from app.services.manufacturers import evaluate_match
 from app.services.optimized_search_engine import OptimizedPartSearchEngine
 from app.services.telegram_notifier import TelegramNotifier
-from passlib.exc import UnknownHashError
-
-from app.core.security import create_access_token, get_password_hash, verify_password
 
 from .deps import get_current_user, get_db, get_user_from_header_or_query, require_admin
 
@@ -45,46 +47,17 @@ protected_router = APIRouter(dependencies=[Depends(get_current_user)])
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-async def _ensure_default_user(session: AsyncSession) -> User:
-    """Make sure the default operator account exists and has a valid hash.
+def _constant_time_equals(first: str, second: str) -> bool:
+    return hmac.compare_digest(first.encode("utf-8"), second.encode("utf-8"))
 
-    Some deployments may carry over SQLite volumes from older versions with
-    incompatible password hashes. We eagerly recreate or rehash the default
-    user here so that logging in with ``admin/admin`` always succeeds.
-    """
 
-    stmt = select(User).where(User.username == settings.default_user_username)
-    db_user = (await session.execute(stmt)).scalar_one_or_none()
-    created = False
-
-    if db_user is None:
-        db_user = User(
-            username=settings.default_user_username,
-            password_hash=get_password_hash(settings.default_user_password),
-            role="user",
-        )
-        session.add(db_user)
-        created = True
-    else:
-        needs_update = False
-        try:
-            if not verify_password(settings.default_user_password, db_user.password_hash):
-                needs_update = True
-        except UnknownHashError:
-            needs_update = True
-
-        if db_user.role != "user":
-            db_user.role = "user"
-            needs_update = True
-
-        if needs_update:
-            db_user.password_hash = get_password_hash(settings.default_user_password)
-            created = True
-
-    if created:
-        await session.commit()
-
-    return db_user
+async def _find_user(session: AsyncSession, username: str) -> User | None:
+    stmt = select(User).where(User.username == username)
+    user = (await session.execute(stmt)).scalar_one_or_none()
+    if user is None:
+        stmt = select(User).where(ci_equals(User.username, username)).order_by(User.id).limit(1)
+        user = (await session.execute(stmt)).scalars().first()
+    return user
 
 
 @auth_router.post("/login", response_model=TokenResponse)
@@ -92,56 +65,26 @@ async def login(
     payload: LoginRequest,
     session: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    # Keep the default operator account consistent before evaluating credentials
-    await _ensure_default_user(session)
-
-    username_input = payload.username.strip()
-    username_lower = username_input.lower()
+    username = payload.username.strip()
     password = payload.password
 
-    admin_passwords = {settings.admin_password, "Admin2025"}
-    default_passwords = {settings.default_user_password, "admin"}
-
-    if username_lower == settings.admin_username.lower() and password in admin_passwords:
+    # Администратор задаётся только через переменные окружения
+    if username.lower() == settings.admin_username.lower() and _constant_time_equals(password, settings.admin_password):
         token = create_access_token({"sub": settings.admin_username, "role": "admin"})
         return TokenResponse(access_token=token, username=settings.admin_username, role="admin")
 
-    if username_lower == settings.default_user_username.lower() and password in default_passwords:
-        # Auto-heal the default operator account if the row is missing or the hash became incompatible
-        stmt_default = select(User).where(User.username == settings.default_user_username)
-        db_default = (await session.execute(stmt_default)).scalar_one_or_none()
-        if db_default is None:
-            db_default = User(
-                username=settings.default_user_username,
-                password_hash=get_password_hash(password),
-                role="user",
-            )
-            session.add(db_default)
-        else:
-            db_default.username = settings.default_user_username
-            db_default.role = db_default.role or "user"
-            db_default.password_hash = get_password_hash(password)
-        await session.commit()
-        token = create_access_token({"sub": db_default.username, "role": db_default.role})
-        return TokenResponse(access_token=token, username=db_default.username, role=db_default.role)
-
-    stmt = select(User).where(User.username == username_input)
-    db_user = (await session.execute(stmt)).scalar_one_or_none()
-
-    if db_user is None and username_input != username_lower:
-        stmt = select(User).where(User.username == username_lower)
-        db_user = (await session.execute(stmt)).scalar_one_or_none()
-    valid = False
+    db_user = await _find_user(session, username)
     try:
         valid = db_user is not None and verify_password(password, db_user.password_hash)
-    except UnknownHashError:
+    except (UnknownHashError, ValueError):
         valid = False
 
     if db_user is None or not valid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    token = create_access_token({"sub": db_user.username, "role": db_user.role})
-    return TokenResponse(access_token=token, username=db_user.username, role=db_user.role)
+    role = db_user.role or "user"
+    token = create_access_token({"sub": db_user.username, "role": role})
+    return TokenResponse(access_token=token, username=db_user.username, role=role)
 
 
 @auth_router.get("/me", response_model=AuthenticatedUser)
@@ -155,14 +98,22 @@ async def update_credentials(
     _: AuthenticatedUser = Depends(require_admin),
     session: AsyncSession = Depends(get_db),
 ) -> CredentialsUpdateResponse:
-    stmt = select(User).order_by(User.id).limit(1)
-    db_user = (await session.execute(stmt)).scalar_one_or_none()
+    new_username = payload.username.strip()
+    if len(new_username) < 3:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Логин слишком короткий")
+
+    stmt = select(User).where(User.role != "admin").order_by(User.id).limit(1)
+    db_user = (await session.execute(stmt)).scalars().first()
+
+    conflict = await _find_user(session, new_username)
+    if conflict is not None and (db_user is None or conflict.id != db_user.id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Пользователь с таким логином уже существует")
 
     if db_user is None:
-        db_user = User(username=payload.username.strip(), password_hash=get_password_hash(payload.password))
+        db_user = User(username=new_username, password_hash=get_password_hash(payload.password), role="user")
         session.add(db_user)
     else:
-        db_user.username = payload.username.strip()
+        db_user.username = new_username
         db_user.password_hash = get_password_hash(payload.password)
 
     await session.commit()
@@ -171,15 +122,14 @@ async def update_credentials(
 
 @protected_router.get("/parts", response_model=list[PartRead])
 async def list_parts(session: AsyncSession = Depends(get_db)) -> list[PartRead]:
-    stmt = select(Part)
+    stmt = select(Part).order_by(Part.id)
     result = await session.execute(stmt)
     return [PartRead.model_validate(part) for part in result.scalars().all()]
 
 
 @protected_router.delete("/parts/{part_id}")
 async def delete_part(part_id: int, session: AsyncSession = Depends(get_db)) -> dict[str, str]:
-    stmt = select(Part).where(Part.id == part_id)
-    db_part = (await session.execute(stmt)).scalar_one_or_none()
+    db_part = await session.get(Part, part_id)
     if db_part is None:
         raise HTTPException(status_code=404, detail="Part not found")
     await session.delete(db_part)
@@ -187,54 +137,59 @@ async def delete_part(part_id: int, session: AsyncSession = Depends(get_db)) -> 
     return {"status": "deleted"}
 
 
+async def _upsert_part(session: AsyncSession, item: PartCreate) -> Part:
+    """Одна строка на артикул: повторное добавление обновляет подсказку производителя."""
+    stmt = (
+        select(Part)
+        .where(ci_equals(Part.part_number, item.part_number))
+        .order_by(Part.manufacturer_name.is_(None), Part.id.desc())
+        .limit(1)
+    )
+    existing = (await session.execute(stmt)).scalars().first()
+    if existing is not None:
+        if item.manufacturer_hint and item.manufacturer_hint != existing.submitted_manufacturer:
+            # Подсказка изменилась — пересчитываем статус сверки с найденным производителем
+            existing.submitted_manufacturer = item.manufacturer_hint
+            existing.match_status, existing.match_confidence = evaluate_match(
+                item.manufacturer_hint, existing.manufacturer_name
+            )
+        return existing
+    part = Part(
+        part_number=item.part_number,
+        submitted_manufacturer=item.manufacturer_hint,
+        match_status="pending" if item.manufacturer_hint else None,
+    )
+    session.add(part)
+    return part
+
+
 @protected_router.post("/parts", response_model=PartRead)
 async def create_part(part: PartCreate, session: AsyncSession = Depends(get_db)) -> PartRead:
     """Создает товар вручную без автоматического поиска"""
-    # Проверяем, существует ли уже товар с таким артикулом
-    stmt = select(Part).where(Part.part_number == part.part_number).order_by(Part.id.desc())
-    existing_part = (await session.execute(stmt)).scalars().first()
-
-    if existing_part:
-        # Если товар уже существует, обновляем submitted_manufacturer если указан
-        if part.manufacturer_hint:
-            existing_part.submitted_manufacturer = part.manufacturer_hint
-            await session.commit()
-        return PartRead.model_validate(existing_part)
-
-    # Создаем новый товар
-    new_part = Part(
-        part_number=part.part_number,
-        submitted_manufacturer=part.manufacturer_hint
-    )
-    session.add(new_part)
+    db_part = await _upsert_part(session, part)
     await session.commit()
-    await session.refresh(new_part)
-    return PartRead.model_validate(new_part)
+    await session.refresh(db_part)
+    return PartRead.model_validate(db_part)
 
 
 @protected_router.post("/search", response_model=SearchResponse)
 async def search_parts(
     request: SearchRequest,
     session: AsyncSession = Depends(get_db),
-    use_optimized: bool = True
+    use_optimized: bool = True,
 ) -> SearchResponse:
     """
     Поиск производителей по артикулам.
 
-    Args:
-        request: Запрос с артикулами для поиска
-        session: Сессия БД
-        use_optimized: Использовать оптимизированный движок (по умолчанию True)
-    """
-    if use_optimized:
-        # Используем новый оптимизированный движок
-        engine = OptimizedPartSearchEngine(session)
-        results = await engine.search_many(request.items, debug=request.debug)
-    else:
-        # Старый движок (для совместимости)
-        engine = PartSearchEngine(session)
-        results = await engine.search_many(request.items, debug=request.debug, stages=request.stages)
+    * без ``stages`` — выполняются нужные этапы (Internet → googlesearch → OpenAI),
+      ранее найденные результаты берутся из БД;
+    * с ``stages`` — кеш игнорируется, выполняются только указанные этапы.
 
+    Параметр ``use_optimized`` оставлен для совместимости: используется единый движок.
+    """
+    engine = OptimizedPartSearchEngine(session)
+    results = await engine.search_many(request.items, debug=request.debug, stages=request.stages)
+    engine.log_recorder.flush()
     await session.commit()
     return SearchResponse(results=results, debug=request.debug)
 
@@ -245,18 +200,14 @@ async def upload_excel(
     debug: bool = Form(False),
     session: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
-    imported, skipped, errors, status_message, items = await import_parts_from_excel(
-        session, file, debug=debug
-    )
+    try:
+        imported, skipped, errors, status_message, items = await import_parts_from_excel(session, file, debug=debug)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    # Сохраняем каждую импортированную запись в базу данных
     for item in items:
-        part = Part(
-            part_number=item.part_number,
-            submitted_manufacturer=item.manufacturer_hint
-        )
-        session.add(part)
-
+        await _upsert_part(session, item)
+        await session.flush()
     await session.commit()
 
     return UploadResponse(
@@ -288,13 +239,15 @@ async def list_logs(
     limit: int = 200,
     session: AsyncSession = Depends(get_db),
 ) -> list[SearchLogRead]:
-    stmt = select(SearchLog).order_by(SearchLog.created_at.desc()).limit(limit)
+    limit = max(1, min(limit, 1000))
+    stmt = select(SearchLog)
     if provider:
         stmt = stmt.where(SearchLog.provider == provider)
     if direction:
         stmt = stmt.where(SearchLog.direction == direction)
     if q:
         stmt = stmt.where(SearchLog.query.ilike(f"%{q}%"))
+    stmt = stmt.order_by(SearchLog.id.desc()).limit(limit)
     result = await session.execute(stmt)
     return [SearchLogRead.model_validate(row) for row in result.scalars().all()]
 
@@ -304,24 +257,18 @@ async def download_file(
     filename: str,
     _: AuthenticatedUser = Depends(get_user_from_header_or_query),
 ) -> FileResponse:
-    path = settings.storage_dir / filename
-    if not path.exists():
+    storage = settings.storage_dir.resolve()
+    path = (storage / filename).resolve()
+    # Защита от выхода за пределы каталога экспорта (../)
+    if path.parent != storage or not path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path)
+    return FileResponse(path, filename=path.name)
 
 
-@protected_router.get("/settings", response_model=SettingsRead)
-async def get_settings_endpoint(
-    session: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
-) -> SettingsRead:
-    """Получить настройки системы (только для администраторов)"""
-    stmt = select(Settings).limit(1)
-    result = await session.execute(stmt)
-    settings_obj = result.scalar_one_or_none()
-
-    if not settings_obj:
-        # Создаем настройки по умолчанию
+async def _get_or_create_settings(session: AsyncSession) -> Settings:
+    stmt = select(Settings).order_by(Settings.id).limit(1)
+    settings_obj = (await session.execute(stmt)).scalars().first()
+    if settings_obj is None:
         settings_obj = Settings(
             telegram_enabled=False,
             openai_balance_threshold=5.0,
@@ -332,7 +279,16 @@ async def get_settings_endpoint(
         session.add(settings_obj)
         await session.commit()
         await session.refresh(settings_obj)
+    return settings_obj
 
+
+@protected_router.get("/settings", response_model=SettingsRead)
+async def get_settings_endpoint(
+    session: AsyncSession = Depends(get_db),
+    _: AuthenticatedUser = Depends(require_admin),
+) -> SettingsRead:
+    """Получить настройки системы (только для администраторов)"""
+    settings_obj = await _get_or_create_settings(session)
     return SettingsRead.model_validate(settings_obj)
 
 
@@ -340,45 +296,34 @@ async def get_settings_endpoint(
 async def update_settings_endpoint(
     settings_update: SettingsUpdate,
     session: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    _: AuthenticatedUser = Depends(require_admin),
 ) -> SettingsRead:
     """Обновить настройки системы (только для администраторов)"""
-    stmt = select(Settings).limit(1)
-    result = await session.execute(stmt)
-    settings_obj = result.scalar_one_or_none()
-
-    if not settings_obj:
-        settings_obj = Settings()
-        session.add(settings_obj)
+    settings_obj = await _get_or_create_settings(session)
 
     # Обновляем только переданные поля
     update_data = settings_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
+        if isinstance(value, str):
+            value = value.strip() or None
         setattr(settings_obj, field, value)
 
     await session.commit()
     await session.refresh(settings_obj)
-
     return SettingsRead.model_validate(settings_obj)
 
 
 @protected_router.post("/settings/test-telegram")
 async def test_telegram_endpoint(
-    test_request: TelegramTestRequest,
+    test_request: TelegramTestRequest | None = None,
     session: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    _: AuthenticatedUser = Depends(require_admin),
 ) -> dict[str, str]:
     """Тестировать отправку сообщения в Telegram (только для администраторов)"""
     notifier = TelegramNotifier(session)
-
-    success, message = await notifier.test_connection()
-
+    success, message = await notifier.test_connection(test_request.message if test_request else None)
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=message
-        )
-
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
     return {"status": "success", "message": message}
 
 

@@ -5,10 +5,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Шрифт DejaVu нужен для кириллицы в PDF-экспорте
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir socksio \
-    && pip install --no-cache-dir "httpx[socks]==0.26.0"
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 

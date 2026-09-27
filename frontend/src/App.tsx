@@ -1,4 +1,4 @@
-import { Fragment, SyntheticEvent, useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { Fragment, SyntheticEvent, memo, useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { keyframes } from '@emotion/react'
 import {
   AppBar,
@@ -64,7 +64,10 @@ import {
   ContentCopy,
   Api,
   PushPin,
-  PushPinOutlined
+  PushPinOutlined,
+  Close,
+  Send,
+  Telegram
 } from '@mui/icons-material'
 import { ToggleButton, ToggleButtonGroup } from '@mui/material'
 
@@ -82,9 +85,24 @@ import {
   setUnauthorizedHandler,
   fetchProfile,
   fetchLogs,
-  deletePartById
+  deletePartById,
+  downloadExport,
+  getSettings,
+  updateSettings,
+  testTelegram,
+  getErrorDetail,
+  getErrorStatus
 } from './api'
-import { MatchStatus, PartRead, PartRequestItem, SearchLog, SearchResult, StageStatus } from './types'
+import {
+  MatchStatus,
+  PartRead,
+  PartRequestItem,
+  SearchLog,
+  SearchResult,
+  StageStatus,
+  SystemSettings,
+  SystemSettingsUpdate
+} from './types'
 import Draggable from 'react-draggable'
 
 const emptyItem: PartRequestItem = { part_number: '', manufacturer_hint: '' }
@@ -157,6 +175,182 @@ type AuthState = { token: string; username: string; role: 'admin' | 'user' }
 const AUTH_STORAGE_KEY = 'aliasfinder:auth'
 const THEME_STORAGE_KEY = 'aliasfinder:theme'
 const TABLE_SETTINGS_STORAGE_KEY = 'aliasfinder:table-settings'
+const SEARCH_CHUNK_SIZE = 5
+const LOG_QUERY_DEBOUNCE_MS = 300
+
+// localStorage может быть недоступен (приватный режим, запрет cookies) — не роняем приложение
+const safeStorageGet = (key: string): string | null => {
+  try {
+    if (typeof window === 'undefined') return null
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+const safeStorageSet = (key: string, value: string | null) => {
+  try {
+    if (typeof window === 'undefined') return
+    if (value === null) {
+      window.localStorage.removeItem(key)
+    } else {
+      window.localStorage.setItem(key, value)
+    }
+  } catch {
+    // игнорируем ошибки хранилища (квота, приватный режим)
+  }
+}
+
+function safeJsonParse<T>(raw: string | null): T | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
+
+// navigator.clipboard недоступен на http-origin, поэтому есть запасной вариант через execCommand
+const copyToClipboard = async (text: string): Promise<boolean> => {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // пробуем запасной вариант ниже
+  }
+  if (typeof document === 'undefined') return false
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.top = '0'
+  textarea.style.left = '0'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  try {
+    textarea.focus()
+    textarea.select()
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    document.body.removeChild(textarea)
+  }
+}
+
+type TableSettings = {
+  tableSize?: 'small' | 'medium'
+  fontSize?: 'small' | 'medium' | 'large'
+  rowHeight?: number
+  fullscreenMode?: boolean
+  fitToScreen?: boolean
+  tableContainerSize?: { width: number; height: number }
+  columnWidths?: Record<string, number>
+}
+
+const loadTableSettings = (): TableSettings => {
+  const parsed = safeJsonParse<TableSettings>(safeStorageGet(TABLE_SETTINGS_STORAGE_KEY))
+  return parsed && typeof parsed === 'object' ? parsed : {}
+}
+
+const loadStoredAuth = (): AuthState | null => {
+  const parsed = safeJsonParse<AuthState>(safeStorageGet(AUTH_STORAGE_KEY))
+  return parsed && typeof parsed === 'object' && typeof parsed.token === 'string' && parsed.token ? parsed : null
+}
+
+const searchItemKey = (item: PartRequestItem) =>
+  `${item.part_number.trim()}|${(item.manufacturer_hint ?? '').trim()}`
+
+const keepOnlyIds = (prev: Set<number>, allowed: Set<number>) => {
+  const next = new Set(Array.from(prev).filter((id) => allowed.has(id)))
+  return next.size === prev.size ? prev : next
+}
+
+const withoutIds = (prev: Set<number>, ids: number[]) => {
+  if (!ids.some((id) => prev.has(id))) return prev
+  const next = new Set(prev)
+  ids.forEach((id) => next.delete(id))
+  return next
+}
+
+type SearchProgress = {
+  running: boolean
+  total: number
+  processed: number
+  found: number
+  failed: number
+  stages: string[] | null
+  stageHistory: StageStatus[]
+}
+
+const computeStageProgress = (progress: SearchProgress | null): StageProgressEntry[] =>
+  STAGE_SEQUENCE.map((name) => {
+    if (!progress) return { name, state: 'idle' as StageState }
+    const entries = progress.stageHistory.filter((stage) => stage.name === name)
+    const counts = entries.reduce<Record<string, number>>((acc, stage) => {
+      acc[stage.status] = (acc[stage.status] ?? 0) + 1
+      return acc
+    }, {})
+    const message = entries.length
+      ? (Object.keys(counts) as StageStatus['status'][])
+          .map((status) => `${stageStatusDescription[status] ?? status}: ${counts[status]}`)
+          .join(', ')
+      : null
+    const requested = !progress.stages || progress.stages.includes(name)
+    let state: StageState
+    if (counts.success) state = 'done'
+    else if (counts['low-confidence']) state = 'warning'
+    else if (counts['no-results']) state = 'error'
+    else if (entries.length || !requested) state = 'skipped'
+    else state = progress.running ? 'pending' : 'skipped'
+    return { name, state, message }
+  })
+
+type SettingsFormState = {
+  telegram_bot_token: string
+  telegram_chat_id: string
+  telegram_enabled: boolean
+  notify_on_errors: boolean
+  notify_on_low_balance: boolean
+  openai_balance_threshold: string
+  google_balance_threshold: string
+}
+
+const emptySettingsForm: SettingsFormState = {
+  telegram_bot_token: '',
+  telegram_chat_id: '',
+  telegram_enabled: false,
+  notify_on_errors: true,
+  notify_on_low_balance: true,
+  openai_balance_threshold: '',
+  google_balance_threshold: ''
+}
+
+const settingsToForm = (settings: SystemSettings): SettingsFormState => ({
+  telegram_bot_token: settings.telegram_bot_token ?? '',
+  telegram_chat_id: settings.telegram_chat_id ?? '',
+  telegram_enabled: Boolean(settings.telegram_enabled),
+  notify_on_errors: Boolean(settings.notify_on_errors),
+  notify_on_low_balance: Boolean(settings.notify_on_low_balance),
+  openai_balance_threshold:
+    settings.openai_balance_threshold === null || settings.openai_balance_threshold === undefined
+      ? ''
+      : String(settings.openai_balance_threshold),
+  google_balance_threshold:
+    settings.google_balance_threshold === null || settings.google_balance_threshold === undefined
+      ? ''
+      : String(settings.google_balance_threshold)
+})
+
+// Возвращает null для пустого значения и undefined для некорректного
+const parseThreshold = (value: string): number | null | undefined => {
+  const trimmed = value.trim().replace(',', '.')
+  if (!trimmed) return null
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+}
 
 const twinkle = keyframes`
   0% { opacity: 0.25; transform: translateY(0px) scale(0.9); }
@@ -208,11 +402,13 @@ const ResizableCell = ({
   column,
   width,
   onResize,
+  onResizeEnd,
   children
 }: {
   column: string
   width: number
   onResize: (column: string, width: number) => void
+  onResizeEnd?: () => void
   children: React.ReactNode
 }) => {
   const [isResizing, setIsResizing] = useState(false)
@@ -237,6 +433,7 @@ const ResizableCell = ({
 
     const handleMouseUp = () => {
       setIsResizing(false)
+      onResizeEnd?.()
     }
 
     document.addEventListener('mousemove', handleMouseMove)
@@ -246,7 +443,7 @@ const ResizableCell = ({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isResizing, startX, startWidth, column, onResize])
+  }, [isResizing, startX, startWidth, column, onResize, onResizeEnd])
 
   return (
     <TableCell
@@ -281,10 +478,12 @@ const ResizableCell = ({
   )
 }
 
-const RowHeightResizer = ({
-  onResize
+const useRowHeightResizer = ({
+  onResize,
+  onResizeEnd
 }: {
   onResize: (height: number) => void
+  onResizeEnd?: () => void
 }) => {
   const [isResizing, setIsResizing] = useState(false)
   const [startY, setStartY] = useState(0)
@@ -309,6 +508,7 @@ const RowHeightResizer = ({
 
     const handleMouseUp = () => {
       setIsResizing(false)
+      onResizeEnd?.()
     }
 
     document.addEventListener('mousemove', handleMouseMove)
@@ -318,7 +518,7 @@ const RowHeightResizer = ({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isResizing, startY, startHeight, onResize])
+  }, [isResizing, startY, startHeight, onResize, onResizeEnd])
 
   return {
     isResizing,
@@ -400,8 +600,28 @@ const Santa = () => {
   )
 }
 
-const HolidayLights = () => {
-  const palette = ['#ff0000', '#00ff00', '#ffeb3b', '#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ff6b9a', '#00d4aa']
+const HOLIDAY_PALETTE = ['#ff0000', '#00ff00', '#ffeb3b', '#ff6b6b', '#ffd166', '#6dd3c2', '#74c0fc', '#c8b6ff', '#ff6b9a', '#00d4aa']
+
+// memo + случайные значения генерируются один раз, чтобы снег и звёзды не "прыгали" при каждом рендере
+const HolidayLights = memo(function HolidayLights() {
+  const palette = HOLIDAY_PALETTE
+  const [stars] = useState(() =>
+    Array.from({ length: 30 }).map(() => ({
+      top: Math.random() * 40,
+      left: Math.random() * 100,
+      duration: 2 + Math.random() * 3,
+      delay: Math.random() * 3
+    }))
+  )
+  const [snowflakes] = useState(() =>
+    Array.from({ length: 80 }).map(() => ({
+      left: Math.random() * 100,
+      size: Math.random() * 12 + 12,
+      duration: Math.random() * 10 + 12,
+      delay: Math.random() * 10
+    }))
+  )
+  const [treeLightDurations] = useState(() => Array.from({ length: 12 }).map(() => 1.5 + Math.random()))
   return (
     <Box
       sx={{
@@ -446,35 +666,35 @@ const HolidayLights = () => {
       />
 
       {/* Звезды на небе */}
-      {Array.from({ length: 30 }).map((_, i) => (
+      {stars.map((star, i) => (
         <Box
           key={`star-${i}`}
           sx={{
             position: 'absolute',
-            top: `${Math.random() * 40}%`,
-            left: `${Math.random() * 100}%`,
+            top: `${star.top}%`,
+            left: `${star.left}%`,
             width: '2px',
             height: '2px',
             borderRadius: '50%',
             background: 'white',
             boxShadow: '0 0 4px 1px rgba(255,255,255,0.8)',
-            animation: `${twinkle} ${2 + Math.random() * 3}s ease-in-out infinite`,
-            animationDelay: `${Math.random() * 3}s`,
+            animation: `${twinkle} ${star.duration}s ease-in-out infinite`,
+            animationDelay: `${star.delay}s`,
             zIndex: 1
           }}
         />
       ))}
       {/* Падающий снег */}
-      {Array.from({ length: 80 }).map((_, i) => (
+      {snowflakes.map((flake, i) => (
         <Box
           key={`snow-${i}`}
           sx={{
             position: 'absolute',
             top: '-10vh',
-            left: `${Math.random() * 100}%`,
-            fontSize: `${Math.random() * 12 + 12}px`,
-            animation: `${snowfall} ${Math.random() * 10 + 12}s linear infinite`,
-            animationDelay: `${Math.random() * 10}s`,
+            left: `${flake.left}%`,
+            fontSize: `${flake.size}px`,
+            animation: `${snowfall} ${flake.duration}s linear infinite`,
+            animationDelay: `${flake.delay}s`,
             opacity: 0.9,
             filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.8))'
           }}
@@ -556,7 +776,7 @@ const HolidayLights = () => {
       >
         🎄
         {/* Гирлянды на ёлке */}
-        {Array.from({ length: 12 }).map((_, i) => (
+        {treeLightDurations.map((duration, i) => (
           <Box
             key={`tree-light-${i}`}
             sx={{
@@ -568,7 +788,7 @@ const HolidayLights = () => {
               boxShadow: `0 0 12px ${palette[i % palette.length]}`,
               top: `${20 + i * 12}%`,
               left: `${30 + (i % 2 ? 15 : -15)}%`,
-              animation: `${twinkle} ${1.5 + Math.random()}s ease-in-out infinite`,
+              animation: `${twinkle} ${duration}s ease-in-out infinite`,
               animationDelay: `${i * 100}ms`
             }}
           />
@@ -682,19 +902,14 @@ const HolidayLights = () => {
       <Box sx={{ position: 'absolute', bottom: '40%', right: '25%', fontSize: '48px', animation: `${float} 6s ease-in-out infinite`, animationDelay: '0.5s' }}>☃️</Box>
     </Box>
   )
-}
+})
 
 export function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
-    if (typeof window === 'undefined') return 'light'
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
+    const stored = safeStorageGet(THEME_STORAGE_KEY)
     return stored === 'dark' || stored === 'holiday' ? (stored as ThemeMode) : 'light'
   })
-  const [auth, setAuth] = useState<AuthState | null>(() => {
-    if (typeof window === 'undefined') return null
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as AuthState) : null
-  })
+  const [auth, setAuth] = useState<AuthState | null>(loadStoredAuth)
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
@@ -716,19 +931,20 @@ export function App() {
     direction: '',
     q: ''
   })
+  const [debouncedLogQuery, setDebouncedLogQuery] = useState('')
+  const logsRequestIdRef = useRef(0)
   const [expandedLogIds, setExpandedLogIds] = useState<Set<number>>(new Set())
   const [expandedTableRows, setExpandedTableRows] = useState<Set<number>>(new Set())
   const [autoRefreshLogs, setAutoRefreshLogs] = useState(false)
   const [refreshInterval, setRefreshInterval] = useState(5000) // 5 seconds default
-  const logsTableRef = useRef<HTMLDivElement>(null)
   const [apiConfigOpen, setApiConfigOpen] = useState(false)
-  const [apiConfig, setApiConfig] = useState({
-    apiUrl: localStorage.getItem('api_url') || '',
-    apiKey: localStorage.getItem('api_key') || '',
-    apiToken: localStorage.getItem('api_token') || '',
-    swaggerUrl: localStorage.getItem('swagger_url') || '',
-    customHeaders: localStorage.getItem('custom_headers') || ''
-  })
+  const [apiConfig, setApiConfig] = useState(() => ({
+    apiUrl: safeStorageGet('api_url') || '',
+    apiKey: safeStorageGet('api_key') || '',
+    apiToken: safeStorageGet('api_token') || '',
+    swaggerUrl: safeStorageGet('swagger_url') || '',
+    customHeaders: safeStorageGet('custom_headers') || ''
+  }))
   const tableData = useMemo(() => {
     const sorted = [...history].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -762,6 +978,12 @@ export function App() {
       return true
     })
   }, [manufacturerFilter, tableData])
+  const visibleIds = useMemo(() => new Set(filteredTableData.map((row) => row.id)), [filteredTableData])
+  // Массовые действия работают только со строками, видимыми при текущем фильтре
+  const selectedVisibleIds = useMemo(
+    () => Array.from(selectedIds).filter((id) => visibleIds.has(id)),
+    [selectedIds, visibleIds]
+  )
   const filteredHistory = useMemo(() => {
     if (historyHidden) return []
     const term = historyFilter.trim().toLowerCase()
@@ -776,38 +998,39 @@ export function App() {
   }, [history, historyFilter, historyHidden])
   const [snackbar, setSnackbar] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [stageProgress, setStageProgress] = useState<StageProgressEntry[]>(() =>
-    STAGE_SEQUENCE.map((name) => ({ name, state: 'idle' }))
-  )
+  const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null)
+  const searchRunIdRef = useRef(0)
+  const stageProgress = useMemo(() => computeStageProgress(searchProgress), [searchProgress])
   const [uploadState, setUploadState] = useState<{ status: 'idle' | 'uploading' | 'done' | 'error'; message?: string }>(
     { status: 'idle' }
   )
-  const [uploadedItems, setUploadedItems] = useState<PartRequestItem[]>([])
+  const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(null)
+  const [settingsForm, setSettingsForm] = useState<SettingsFormState>(emptySettingsForm)
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [telegramTesting, setTelegramTesting] = useState(false)
 
-  // Load table settings from localStorage
-  const loadTableSettings = () => {
-    if (typeof window === 'undefined') return null
-    const stored = window.localStorage.getItem(TABLE_SETTINGS_STORAGE_KEY)
-    return stored ? JSON.parse(stored) : null
-  }
+  // Load table settings from localStorage (один раз)
+  const [savedSettings] = useState(loadTableSettings)
 
-  const savedSettings = loadTableSettings()
-
-  const [tableSize, setTableSize] = useState<'small' | 'medium'>(savedSettings?.tableSize || 'small')
-  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(savedSettings?.fontSize || 'medium')
-  const [rowHeight, setRowHeight] = useState<number>(savedSettings?.rowHeight || 53)
-  const [fullscreenMode, setFullscreenMode] = useState<boolean>(savedSettings?.fullscreenMode || false)
-  const [fitToScreen, setFitToScreen] = useState<boolean>(savedSettings?.fitToScreen ?? true)
-  const [tableContainerSize, setTableContainerSize] = useState<{ width: number; height: number }>(
-    savedSettings?.tableContainerSize || {
-      width: Math.min(window.innerWidth - 80, 1400),
-      height: Math.min(window.innerHeight - 200, 700)
-    }
+  const [tableSize, setTableSize] = useState<'small' | 'medium'>(() => savedSettings.tableSize || 'small')
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => savedSettings.fontSize || 'medium')
+  const [rowHeight, setRowHeight] = useState<number>(() => savedSettings.rowHeight || 53)
+  const [fullscreenMode, setFullscreenMode] = useState<boolean>(() => savedSettings.fullscreenMode || false)
+  const [fitToScreen, setFitToScreen] = useState<boolean>(() => savedSettings.fitToScreen ?? true)
+  const [tableContainerSize] = useState<{ width: number; height: number }>(
+    () =>
+      savedSettings.tableContainerSize || {
+        width: typeof window === 'undefined' ? 1400 : Math.min(window.innerWidth - 80, 1400),
+        height: typeof window === 'undefined' ? 700 : Math.min(window.innerHeight - 200, 700)
+      }
   )
+  // Увеличивается по отпусканию мыши после изменения размеров — тогда и сохраняем в localStorage
+  const [resizeCommitVersion, setResizeCommitVersion] = useState(0)
   const [tableDraggable, setTableDraggable] = useState(false)
   const [tablePosition, setTablePosition] = useState({ x: 0, y: 0 })
   const [tablePinned, setTablePinned] = useState(false)
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(savedSettings?.columnWidths || {
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => savedSettings.columnWidths || {
     checkbox: 50,
     article: 120,
     manufacturer: 150,
@@ -836,9 +1059,6 @@ export function App() {
         return '0.875rem'
     }
   }, [fontSize])
-  const [currentService, setCurrentService] = useState('—')
-  const progressTimerRef = useRef<number | null>(null)
-  const progressIndexRef = useRef(0)
   const handleThemeChange = (_: SyntheticEvent, value: ThemeMode | null) => {
     if (value) setThemeMode(value)
   }
@@ -846,20 +1066,32 @@ export function App() {
     try {
       const data = await listParts()
       setHistory(data)
+      // Убираем из выделения и раскрытых строк записи, которых больше нет
+      const existingIds = new Set(data.map((part) => part.id))
+      setSelectedIds((prev) => keepOnlyIds(prev, existingIds))
+      setExpandedTableRows((prev) => keepOnlyIds(prev, existingIds))
     } catch (error) {
       setSnackbar('Не удалось получить историю поиска')
     }
   }
 
-  const loadLogs = async () => {
+  const loadLogs = async (filters: typeof logFilters) => {
+    // Ответы на устаревшие запросы игнорируются
+    const requestId = ++logsRequestIdRef.current
+    setLogsLoading(true)
     try {
-      setLogsLoading(true)
-      const data = await fetchLogs({ ...logFilters, limit: 200 })
-      setLogs(data)
+      const data = await fetchLogs({ ...filters, limit: 200 })
+      if (requestId === logsRequestIdRef.current) {
+        setLogs(data)
+      }
     } catch (error) {
-      setSnackbar('Не удалось загрузить логи')
+      if (requestId === logsRequestIdRef.current) {
+        setSnackbar('Не удалось загрузить логи')
+      }
     } finally {
-      setLogsLoading(false)
+      if (requestId === logsRequestIdRef.current) {
+        setLogsLoading(false)
+      }
     }
   }
 
@@ -875,11 +1107,9 @@ export function App() {
     })
   }
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(
-      () => setSnackbar('Скопировано в буфер обмена'),
-      () => setSnackbar('Не удалось скопировать')
-    )
+  const handleCopy = async (text: string, successMessage = 'Скопировано в буфер обмена') => {
+    const copied = await copyToClipboard(text)
+    setSnackbar(copied ? successMessage : 'Не удалось скопировать')
   }
 
   const formatJSON = (jsonString: string | null | undefined): string => {
@@ -909,6 +1139,8 @@ export function App() {
   const handleDeletePartRow = async (id: number) => {
     try {
       await deletePartById(id)
+      setSelectedIds((prev) => withoutIds(prev, [id]))
+      setExpandedTableRows((prev) => withoutIds(prev, [id]))
       await refreshHistory()
       setSnackbar('Строка удалена')
     } catch (error) {
@@ -927,17 +1159,6 @@ export function App() {
     }
     return 'radial-gradient(circle at 25% 25%, rgba(77,171,247,0.15), transparent 45%), radial-gradient(circle at 80% 0%, rgba(27,131,172,0.15), transparent 45%), linear-gradient(180deg, #05090f 0%, #0f1827 100%)'
   }, [themeMode])
-  const activeStepperIndex = useMemo(() => {
-    const activeIdx = stageProgress.findIndex((entry) => entry.state === 'active')
-    if (activeIdx >= 0) return activeIdx
-    const doneCount = stageProgress.filter((entry) => entry.state === 'done').length
-    return doneCount ? doneCount - 1 : 0
-  }, [stageProgress])
-
-  const resetProgress = () => {
-    setStageProgress(STAGE_SEQUENCE.map((name) => ({ name, state: 'idle' })))
-    setCurrentService('—')
-  }
 
   const renderMatchChip = (status: MatchStatus | undefined, confidence?: number | null) => {
     if (!status) {
@@ -955,76 +1176,25 @@ export function App() {
     )
   }
 
-  const startProgress = () => {
-    if (progressTimerRef.current) {
-      window.clearInterval(progressTimerRef.current)
-    }
-    progressIndexRef.current = 0
-    setStageProgress(
-      STAGE_SEQUENCE.map((name, index) => ({ name, state: index === 0 ? 'active' : 'pending' }))
-    )
-    setCurrentService(stageLabels[STAGE_SEQUENCE[0]])
-    progressTimerRef.current = window.setInterval(() => {
-      progressIndexRef.current = Math.min(progressIndexRef.current + 1, STAGE_SEQUENCE.length - 1)
-      setStageProgress((prev) =>
-        prev.map((entry, idx) => {
-          if (idx < progressIndexRef.current) return { ...entry, state: 'done' as StageState }
-          if (idx === progressIndexRef.current) return { ...entry, state: 'active' as StageState }
-          return { ...entry, state: 'pending' as StageState }
-        })
-      )
-      setCurrentService(stageLabels[STAGE_SEQUENCE[progressIndexRef.current]])
-      if (progressIndexRef.current === STAGE_SEQUENCE.length - 1 && progressTimerRef.current) {
-        window.clearInterval(progressTimerRef.current)
-        progressTimerRef.current = null
-      }
-    }, 2200)
-  }
-
-  const finishProgress = (history?: StageStatus[]) => {
-    if (progressTimerRef.current) {
-      window.clearInterval(progressTimerRef.current)
-      progressTimerRef.current = null
-    }
-    if (!history || history.length === 0) {
-      resetProgress()
-      return
-    }
-    setStageProgress(
-      STAGE_SEQUENCE.map((name) => {
-        const stage = history.find((item) => item.name === name)
-        if (!stage) {
-          return { name, state: 'pending' as StageState }
-        }
-        const mappedState: StageState =
-          stage.status === 'success'
-            ? 'done'
-            : stage.status === 'low-confidence'
-            ? 'warning'
-            : stage.status === 'no-results'
-            ? 'error'
-            : 'skipped'
-        return { name, state: mappedState, message: stage.message ?? null }
-      })
-    )
-    const finalStage =
-      [...history].reverse().find((stage) => stage.status === 'success') ||
-      history.find((stage) => stage.status === 'low-confidence')
-    if (finalStage) {
-      const mappedName = finalStage.name as StageName
-      setCurrentService(stageLabels[mappedName] ?? finalStage.name)
-    } else {
-      setCurrentService('—')
-    }
-  }
-
   const handleLogout = (message?: string) => {
+    // Прерываем идущий пакетный поиск
+    searchRunIdRef.current += 1
     setAuth(null)
     setResults([])
     setHistory([])
     setItems([{ ...emptyItem }])
-    resetProgress()
+    setSelectedIds(new Set())
+    setExpandedTableRows(new Set())
+    setUploadState({ status: 'idle' })
+    setSearchProgress(null)
     setLoading(false)
+    logsRequestIdRef.current += 1
+    setLogs([])
+    setLogsLoading(false)
+    setExpandedLogIds(new Set())
+    setSystemSettings(null)
+    setSettingsForm(emptySettingsForm)
+    setActivePage('dashboard')
     setCredentialsForm({ username: '', password: '' })
     if (message) {
       setSnackbar(message)
@@ -1032,35 +1202,20 @@ export function App() {
   }
 
   useEffect(() => {
-    return () => {
-      if (progressTimerRef.current) {
-        window.clearInterval(progressTimerRef.current)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
     setUnauthorizedHandler(() => handleLogout('Сессия истекла. Авторизуйтесь снова.'))
     return () => setUnauthorizedHandler(null)
   }, [])
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (auth) {
-      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(auth))
-    } else {
-      window.localStorage.removeItem(AUTH_STORAGE_KEY)
-    }
+    safeStorageSet(AUTH_STORAGE_KEY, auth ? JSON.stringify(auth) : null)
   }, [auth])
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem(THEME_STORAGE_KEY, themeMode)
+    safeStorageSet(THEME_STORAGE_KEY, themeMode)
   }, [themeMode])
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    const settings = {
+    const settings: TableSettings = {
       tableSize,
       fontSize,
       rowHeight,
@@ -1069,8 +1224,9 @@ export function App() {
       tableContainerSize,
       columnWidths
     }
-    window.localStorage.setItem(TABLE_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
-  }, [tableSize, fontSize, rowHeight, fullscreenMode, fitToScreen, tableContainerSize, columnWidths])
+    safeStorageSet(TABLE_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+    // rowHeight и columnWidths меняются на каждом mousemove — сохраняем их только по mouseup (resizeCommitVersion)
+  }, [tableSize, fontSize, fullscreenMode, fitToScreen, tableContainerSize, resizeCommitVersion])
 
   useEffect(() => {
     if (!auth) {
@@ -1078,46 +1234,144 @@ export function App() {
       return
     }
     setAuthToken(auth.token)
+    let cancelled = false
     const verify = async () => {
       try {
         await fetchProfile()
-        await refreshHistory()
       } catch (error) {
-        handleLogout('Сессия истекла. Авторизуйтесь снова.')
+        // При 401 выход уже выполнен перехватчиком axios — не дублируем
+        if (!cancelled && getErrorStatus(error) !== 401) {
+          handleLogout('Сессия истекла. Авторизуйтесь снова.')
+        }
+        return
+      }
+      if (!cancelled) {
+        await refreshHistory()
       }
     }
     verify()
+    return () => {
+      cancelled = true
+    }
   }, [auth])
+
+  // Debounce текстового фильтра логов, чтобы не слать запрос на каждое нажатие клавиши
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setDebouncedLogQuery(logFilters.q), LOG_QUERY_DEBOUNCE_MS)
+    return () => window.clearTimeout(timeoutId)
+  }, [logFilters.q])
+
+  const effectiveLogFilters = useMemo(
+    () => ({ provider: logFilters.provider, direction: logFilters.direction, q: debouncedLogQuery }),
+    [logFilters.provider, logFilters.direction, debouncedLogQuery]
+  )
 
   useEffect(() => {
     if (activePage !== 'logs' || !auth) return
-    loadLogs()
-  }, [activePage, auth, logFilters])
+    loadLogs(effectiveLogFilters)
+  }, [activePage, auth, effectiveLogFilters])
 
-  // Auto-refresh logs
+  // Auto-refresh logs (с актуальными фильтрами)
   useEffect(() => {
     if (!autoRefreshLogs || activePage !== 'logs' || !auth) return
 
-    const intervalId = setInterval(() => {
-      loadLogs()
+    const intervalId = window.setInterval(() => {
+      loadLogs(effectiveLogFilters)
     }, refreshInterval)
 
-    return () => clearInterval(intervalId)
-  }, [autoRefreshLogs, activePage, auth, refreshInterval])
+    return () => window.clearInterval(intervalId)
+  }, [autoRefreshLogs, activePage, auth, refreshInterval, effectiveLogFilters])
 
-  // Auto-scroll to bottom when logs change
+  // Загружаем настройки уведомлений, когда администратор открывает страницу настроек
   useEffect(() => {
-    if (activePage !== 'logs' || logs.length === 0) return
-
-    // Small delay to ensure DOM is updated
-    const timeoutId = setTimeout(() => {
-      if (logsTableRef.current) {
-        logsTableRef.current.scrollTop = logsTableRef.current.scrollHeight
+    if (activePage !== 'settings' || !isAdmin) return
+    let cancelled = false
+    const load = async () => {
+      setSettingsLoading(true)
+      try {
+        const data = await getSettings()
+        if (cancelled) return
+        setSystemSettings(data)
+        setSettingsForm(settingsToForm(data))
+      } catch (error) {
+        if (!cancelled) {
+          setSnackbar(getErrorDetail(error) ?? 'Не удалось загрузить настройки уведомлений')
+        }
+      } finally {
+        if (!cancelled) {
+          setSettingsLoading(false)
+        }
       }
-    }, 100)
+    }
+    load()
+    return () => {
+      cancelled = true
+      setSettingsLoading(false)
+    }
+  }, [activePage, isAdmin])
 
-    return () => clearTimeout(timeoutId)
-  }, [logs, activePage])
+  const settingsDirty = useMemo(() => {
+    if (!systemSettings) return false
+    const original = settingsToForm(systemSettings)
+    return (Object.keys(original) as (keyof SettingsFormState)[]).some((key) => original[key] !== settingsForm[key])
+  }, [systemSettings, settingsForm])
+
+  const handleSettingsFieldChange = <K extends keyof SettingsFormState>(field: K, value: SettingsFormState[K]) => {
+    setSettingsForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleSaveSystemSettings = async () => {
+    const openaiThreshold = parseThreshold(settingsForm.openai_balance_threshold)
+    const googleThreshold = parseThreshold(settingsForm.google_balance_threshold)
+    if (openaiThreshold === undefined || googleThreshold === undefined) {
+      setSnackbar('Пороги баланса должны быть неотрицательными числами')
+      return
+    }
+    const next: SystemSettingsUpdate = {
+      telegram_bot_token: settingsForm.telegram_bot_token.trim() || null,
+      telegram_chat_id: settingsForm.telegram_chat_id.trim() || null,
+      telegram_enabled: settingsForm.telegram_enabled,
+      notify_on_errors: settingsForm.notify_on_errors,
+      notify_on_low_balance: settingsForm.notify_on_low_balance,
+      openai_balance_threshold: openaiThreshold,
+      google_balance_threshold: googleThreshold
+    }
+    // PUT /settings — частичное обновление, отправляем только изменённые поля
+    const payload = Object.fromEntries(
+      Object.entries(next).filter(([key, value]) => {
+        if (!systemSettings) return true
+        return (systemSettings[key as keyof SystemSettingsUpdate] ?? null) !== value
+      })
+    ) as SystemSettingsUpdate
+    if (!Object.keys(payload).length) {
+      setSnackbar('Нет изменений для сохранения')
+      return
+    }
+    setSettingsSaving(true)
+    try {
+      const updated = await updateSettings(payload)
+      setSystemSettings(updated)
+      setSettingsForm(settingsToForm(updated))
+      setSnackbar('Настройки уведомлений сохранены')
+    } catch (error) {
+      setSnackbar(getErrorDetail(error) ?? 'Не удалось сохранить настройки')
+    } finally {
+      setSettingsSaving(false)
+    }
+  }
+
+  const handleTestTelegram = async () => {
+    setTelegramTesting(true)
+    try {
+      const response = await testTelegram()
+      setSnackbar(response.message || 'Тестовое сообщение отправлено')
+    } catch (error) {
+      const detail = getErrorDetail(error)
+      setSnackbar(detail ? `Ошибка Telegram: ${detail}` : 'Не удалось отправить тестовое сообщение')
+    } finally {
+      setTelegramTesting(false)
+    }
+  }
 
   const handleLoginSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1167,34 +1421,77 @@ export function App() {
   const removeRow = (index: number) =>
     setItems((prev) => (prev.length === 1 ? prev : prev.filter((_, idx) => idx !== index)))
 
-  const performSearch = async (targets: PartRequestItem[], stages?: string[] | null) => {
-    const filled = targets.filter((item) => item.part_number.trim().length)
+  const performSearch = async (
+    targets: PartRequestItem[],
+    stages?: string[] | null
+  ): Promise<{ failedKeys: Set<string> } | null> => {
+    // Убираем пустые строки и дубликаты (артикул + производитель)
+    const seen = new Set<string>()
+    const filled = targets.filter((item) => {
+      if (!item.part_number.trim()) return false
+      const key = searchItemKey(item)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
     if (!filled.length) {
       setSnackbar('Добавьте хотя бы один артикул для поиска')
-      finishProgress()
-      return
+      return null
     }
+    // Новый поиск или выход из системы прерывают текущий цикл
+    const runId = ++searchRunIdRef.current
+    const isCurrentRun = () => searchRunIdRef.current === runId
+    const total = filled.length
+    const failedKeys = new Set<string>()
+    const collected: SearchResult[] = []
+    let found = 0
     setLoading(true)
-    startProgress()
-    let latestStageHistory: StageStatus[] | undefined
-    try {
-      const response = await searchParts(filled, debugMode, stages)
-      latestStageHistory = response.results[0]?.stage_history
-      setResults(response.results)
-      await refreshHistory()
-      if (!response.results.length) {
-        setSnackbar('Производители не найдены')
+    setResults([])
+    setSearchProgress({
+      running: true,
+      total,
+      processed: 0,
+      found: 0,
+      failed: 0,
+      stages: stages ?? null,
+      stageHistory: []
+    })
+    // Отправляем пачками: таблица заполняется постепенно, а ошибка одной пачки не прерывает весь поиск
+    for (let offset = 0; offset < total; offset += SEARCH_CHUNK_SIZE) {
+      const chunk = filled.slice(offset, offset + SEARCH_CHUNK_SIZE)
+      let chunkResults: SearchResult[] = []
+      let chunkFailed = false
+      try {
+        const response = await searchParts(chunk, debugMode, stages)
+        chunkResults = response.results ?? []
+      } catch (error) {
+        chunkFailed = true
+        chunk.forEach((item) => failedKeys.add(searchItemKey(item)))
       }
-    } catch (error) {
-      setSnackbar('Ошибка при выполнении поиска')
-    } finally {
-      setLoading(false)
-      finishProgress(latestStageHistory)
+      if (!isCurrentRun()) return null
+      const chunkFound = chunkResults.filter((result) => Boolean(result.manufacturer_name)).length
+      const failedCount = failedKeys.size
+      found += chunkFound
+      collected.push(...chunkResults)
+      setResults([...collected])
+      setSearchProgress((prev) =>
+        prev && {
+          ...prev,
+          processed: Math.min(prev.total, prev.processed + chunk.length),
+          found: prev.found + chunkFound,
+          failed: failedCount,
+          stageHistory: [...prev.stageHistory, ...chunkResults.flatMap((result) => result.stage_history ?? [])]
+        }
+      )
+      if (!chunkFailed) {
+        await refreshHistory()
+        if (!isCurrentRun()) return null
+      }
     }
-  }
-
-  const submitSearch = async () => {
-    await performSearch(items)
+    setLoading(false)
+    setSearchProgress((prev) => prev && { ...prev, running: false })
+    setSnackbar(`Поиск завершён. Найдено ${found} из ${total}, ошибок: ${failedKeys.size}`)
+    return { failedKeys }
   }
 
   const submitManual = async () => {
@@ -1227,31 +1524,31 @@ export function App() {
       const baseMessage = `Импортировано: ${response.imported}, пропущено: ${response.skipped}`
       const errorMessage = response.errors.length ? ` Ошибки: ${response.errors.join(', ')}` : ''
       const statusMessage = response.status_message ?? `Файл ${file.name} обработан`
-      setUploadedItems(response.items ?? [])
-      setItems((response.items ?? []).length ? response.items : [{ ...emptyItem }])
       setUploadState({ status: 'done', message: `${statusMessage}. Данные добавлены в таблицу` })
       setSnackbar(`${statusMessage}. ${baseMessage}${errorMessage}`)
       await refreshHistory()
     } catch (error) {
       setUploadState({ status: 'error', message: 'Не удалось загрузить файл' })
-      setUploadedItems([])
       setSnackbar('Не удалось загрузить файл')
     } finally {
       input.value = ''
     }
   }
 
-  const runUploadedSearch = async () => {
-    await performSearch(uploadedItems)
+  // Выбор/снятие всех строк, видимых при текущем фильтре
+  const handleSelectAll = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      visibleIds.forEach((id) => {
+        if (checked) {
+          next.add(id)
+        } else {
+          next.delete(id)
+        }
+      })
+      return next
+    })
   }
-
-  const handleSelectAll = useCallback((checked: boolean) => {
-    if (checked) {
-      setSelectedIds(new Set(filteredTableData.map(row => row.id)))
-    } else {
-      setSelectedIds(new Set())
-    }
-  }, [filteredTableData])
 
   const handleSelectRow = useCallback((id: number, checked: boolean) => {
     setSelectedIds(prev => {
@@ -1265,61 +1562,48 @@ export function App() {
     })
   }, [])
 
-  const handleSearchSelected = useCallback(async (stage: string) => {
-    if (selectedIds.size === 0) {
+  const handleBatchSearch = async (stages?: string[] | null) => {
+    if (!selectedVisibleIds.length) {
       setSnackbar('Выберите хотя бы одну строку для поиска')
       return
     }
-    const selectedParts = history.filter(part => selectedIds.has(part.id)).map(part => ({
+    const targetIds = new Set(selectedVisibleIds)
+    const targetParts = history.filter((part) => targetIds.has(part.id))
+    const toItem = (part: PartRead): PartRequestItem => ({
       part_number: part.part_number,
       manufacturer_hint: part.submitted_manufacturer ?? null
-    }))
-    await performSearch(selectedParts, [stage])
-    setSelectedIds(new Set())
-  }, [selectedIds, history])
+    })
+    const outcome = await performSearch(targetParts.map(toItem), stages)
+    if (!outcome) return
+    // Строки с ошибкой остаются выбранными, успешно обработанные — снимаем
+    const processedIds = targetParts
+      .filter((part) => !outcome.failedKeys.has(searchItemKey(toItem(part))))
+      .map((part) => part.id)
+    setSelectedIds((prev) => withoutIds(prev, processedIds))
+  }
 
-  const handleBatchSearch = useCallback(async (stages?: string[] | null) => {
-    if (selectedIds.size === 0) {
-      setSnackbar('Выберите хотя бы одну строку для поиска')
-      return
-    }
-    const selectedParts = history.filter(part => selectedIds.has(part.id)).map(part => ({
-      part_number: part.part_number,
-      manufacturer_hint: part.submitted_manufacturer ?? null
-    }))
-    await performSearch(selectedParts, stages)
-    setSelectedIds(new Set())
-  }, [selectedIds, history])
-
-  const handleSearchSingleRow = useCallback(async (partId: number, stages?: string[] | null) => {
-    const part = history.find(p => p.id === partId)
-    if (!part) return
-
-    const partToSearch: PartRequestItem = {
-      part_number: part.part_number,
-      manufacturer_hint: part.submitted_manufacturer ?? null
-    }
-    await performSearch([partToSearch], stages)
-  }, [history])
-
-  const handleBatchDelete = useCallback(async () => {
-    if (selectedIds.size === 0) {
+  const handleBatchDelete = async () => {
+    const targetIds = selectedVisibleIds
+    if (!targetIds.length) {
       setSnackbar('Выберите хотя бы одну строку для удаления')
       return
     }
-    if (!window.confirm(`Удалить ${selectedIds.size} строк(и)?`)) {
+    if (!window.confirm(`Удалить ${targetIds.length} строк(и)?`)) {
       return
     }
-    try {
-      // Удаляем все выбранные строки
-      await Promise.all(Array.from(selectedIds).map(id => deletePartById(id)))
-      await refreshHistory()
-      setSelectedIds(new Set())
-      setSnackbar(`Удалено строк: ${selectedIds.size}`)
-    } catch (error) {
-      setSnackbar('Не удалось удалить строки')
-    }
-  }, [selectedIds])
+    const outcomes = await Promise.allSettled(targetIds.map((id) => deletePartById(id)))
+    const deletedIds = targetIds.filter((_, index) => outcomes[index].status === 'fulfilled')
+    const failedCount = targetIds.length - deletedIds.length
+    // Неудалённые строки остаются выбранными
+    setSelectedIds((prev) => withoutIds(prev, deletedIds))
+    setExpandedTableRows((prev) => withoutIds(prev, deletedIds))
+    await refreshHistory()
+    setSnackbar(
+      failedCount
+        ? `Удалено строк: ${deletedIds.length}, не удалось удалить: ${failedCount}`
+        : `Удалено строк: ${deletedIds.length}`
+    )
+  }
 
   const handleColumnResize = useCallback((column: string, width: number) => {
     setColumnWidths(prev => ({
@@ -1332,23 +1616,14 @@ export function App() {
     setRowHeight(height)
   }, [])
 
-  const rowResizer = RowHeightResizer({ onResize: handleRowHeightResize })
+  const handleResizeEnd = useCallback(() => setResizeCommitVersion((version) => version + 1), [])
+
+  const rowResizer = useRowHeightResizer({ onResize: handleRowHeightResize, onResizeEnd: handleResizeEnd })
 
   const handleExport = async (type: 'pdf' | 'excel') => {
     try {
       const response = type === 'pdf' ? await exportPdf() : await exportExcel()
-      if (typeof window !== 'undefined') {
-        const absoluteUrl =
-          response.url.startsWith('http://') ||
-          response.url.startsWith('https://') ||
-          response.url.startsWith('//')
-            ? response.url
-            : `${window.location.origin}${response.url.startsWith('/') ? '' : '/'}${response.url}`
-        const tokenizedUrl = auth?.token
-          ? `${absoluteUrl}${absoluteUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(auth.token)}`
-          : absoluteUrl
-        window.open(tokenizedUrl, '_blank', 'noopener')
-      }
+      await downloadExport(response.url)
       setSnackbar(type === 'pdf' ? 'PDF сформирован' : 'Excel сформирован')
     } catch (error) {
       setSnackbar('Не удалось выгрузить данные')
@@ -1544,11 +1819,10 @@ export function App() {
             </AppBar>
 
             <Container
-              maxWidth={activePage === 'main' ? false : "xl"}
+              maxWidth="xl"
               sx={{
                 pt: { xs: 10, md: 14 },
-                pb: 8,
-                px: activePage === 'main' ? { xs: 2, md: 3 } : undefined
+                pb: 8
               }}
             >
         {activePage === 'settings' ? (
@@ -1624,6 +1898,123 @@ export function App() {
                 </Box>
               </Stack>
             </Paper>
+            {isAdmin && (
+              <Paper
+                elevation={0}
+                sx={{
+                  p: { xs: 3, md: 4 },
+                  borderRadius: 4,
+                  border: '1px solid',
+                  borderColor: 'divider'
+                }}
+              >
+                <Stack spacing={3}>
+                  <Box display="flex" alignItems="center" gap={1.5}>
+                    <Telegram color="primary" />
+                    <Box>
+                      <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                        Уведомления Telegram
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Оповещения об ошибках поиска и низком балансе OpenAI / Google
+                      </Typography>
+                    </Box>
+                  </Box>
+                  {settingsLoading && <LinearProgress />}
+                  <Stack spacing={2} maxWidth={500}>
+                    <TextField
+                      label="Токен бота"
+                      type="password"
+                      autoComplete="new-password"
+                      value={settingsForm.telegram_bot_token}
+                      onChange={(e) => handleSettingsFieldChange('telegram_bot_token', e.target.value)}
+                      disabled={settingsLoading}
+                      fullWidth
+                    />
+                    <TextField
+                      label="Chat ID"
+                      value={settingsForm.telegram_chat_id}
+                      onChange={(e) => handleSettingsFieldChange('telegram_chat_id', e.target.value)}
+                      disabled={settingsLoading}
+                      helperText="ID чата или канала, куда бот будет отправлять сообщения"
+                      fullWidth
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={settingsForm.telegram_enabled}
+                          onChange={(e) => handleSettingsFieldChange('telegram_enabled', e.target.checked)}
+                          disabled={settingsLoading}
+                        />
+                      }
+                      label="Отправлять уведомления в Telegram"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={settingsForm.notify_on_errors}
+                          onChange={(e) => handleSettingsFieldChange('notify_on_errors', e.target.checked)}
+                          disabled={settingsLoading}
+                        />
+                      }
+                      label="Уведомлять об ошибках"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={settingsForm.notify_on_low_balance}
+                          onChange={(e) => handleSettingsFieldChange('notify_on_low_balance', e.target.checked)}
+                          disabled={settingsLoading}
+                        />
+                      }
+                      label="Уведомлять о низком балансе"
+                    />
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                      <TextField
+                        label="Порог баланса OpenAI, $"
+                        type="number"
+                        value={settingsForm.openai_balance_threshold}
+                        onChange={(e) => handleSettingsFieldChange('openai_balance_threshold', e.target.value)}
+                        disabled={settingsLoading}
+                        inputProps={{ min: 0, step: 0.5 }}
+                        fullWidth
+                      />
+                      <TextField
+                        label="Порог баланса Google, $"
+                        type="number"
+                        value={settingsForm.google_balance_threshold}
+                        onChange={(e) => handleSettingsFieldChange('google_balance_threshold', e.target.value)}
+                        disabled={settingsLoading}
+                        inputProps={{ min: 0, step: 0.5 }}
+                        fullWidth
+                      />
+                    </Stack>
+                    {settingsDirty && (
+                      <Typography variant="caption" color="warning.main">
+                        Есть несохранённые изменения. Тестовое сообщение отправляется с сохранёнными настройками.
+                      </Typography>
+                    )}
+                    <Stack direction="row" spacing={2}>
+                      <Button
+                        variant="contained"
+                        onClick={handleSaveSystemSettings}
+                        disabled={settingsLoading || settingsSaving}
+                      >
+                        {settingsSaving ? 'Сохранение...' : 'Сохранить'}
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        startIcon={<Send />}
+                        onClick={handleTestTelegram}
+                        disabled={settingsLoading || telegramTesting}
+                      >
+                        {telegramTesting ? 'Отправка...' : 'Отправить тест'}
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </Stack>
+              </Paper>
+            )}
           </Stack>
         ) : activePage === 'dashboard' ? (
           <Stack spacing={4}>
@@ -1729,7 +2120,7 @@ export function App() {
             </Stack>
           </Paper>
 
-          {loading && (
+          {searchProgress && (
             <Paper
               elevation={6}
               sx={{
@@ -1740,20 +2131,41 @@ export function App() {
               }}
             >
               <Stack spacing={2}>
-                <Box display="flex" alignItems="center" justifyContent="space-between">
+                <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
                   <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    Прогресс поиска
+                    {searchProgress.running ? 'Прогресс поиска' : 'Поиск завершён'}
                   </Typography>
-                  <Chip label={`Текущий сервис: ${currentService}`} color="primary" variant="outlined" />
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                    <Chip
+                      label={`Обработано ${searchProgress.processed} из ${searchProgress.total}`}
+                      color="primary"
+                      variant="outlined"
+                    />
+                    <Chip label={`Найдено: ${searchProgress.found}`} color="success" variant="outlined" />
+                    {searchProgress.failed > 0 && (
+                      <Chip label={`Ошибок: ${searchProgress.failed}`} color="error" variant="outlined" />
+                    )}
+                    {!searchProgress.running && (
+                      <Tooltip title="Скрыть">
+                        <IconButton size="small" onClick={() => setSearchProgress(null)} aria-label="Скрыть прогресс">
+                          <Close fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Stack>
                 </Box>
-                <LinearProgress color="secondary" />
+                <LinearProgress
+                  variant="determinate"
+                  color={searchProgress.running ? 'secondary' : searchProgress.failed ? 'warning' : 'success'}
+                  value={searchProgress.total ? (searchProgress.processed / searchProgress.total) * 100 : 0}
+                />
                 <Stack direction="row" spacing={1} flexWrap="wrap">
                   {stageProgress.map((stage) => (
                     <Chip
                       key={stage.name}
                       label={`${stageLabels[stage.name]} · ${progressStateLabel[stage.state]}`}
                       color={progressStateColor[stage.state]}
-                      variant={stage.state === 'active' ? 'filled' : 'outlined'}
+                      variant={stage.state === 'done' || stage.state === 'warning' || stage.state === 'error' ? 'filled' : 'outlined'}
                       size="small"
                       title={stage.message ?? undefined}
                     />
@@ -1850,10 +2262,10 @@ export function App() {
                 </Stack>
               </Box>
 
-              {selectedIds.size > 0 && (
+              {selectedVisibleIds.length > 0 && (
                 <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
                   <Typography variant="body2" color="text.secondary">
-                    Выбрано строк: {selectedIds.size}
+                    Выбрано строк: {selectedVisibleIds.length}
                   </Typography>
                   <Stack direction="row" spacing={1}>
                     <Tooltip title="Поиск через Google Search для выбранных строк">
@@ -1901,7 +2313,7 @@ export function App() {
                         onClick={handleBatchDelete}
                         disabled={loading}
                       >
-                        Удалить ({selectedIds.size})
+                        Удалить ({selectedVisibleIds.length})
                       </Button>
                     </Tooltip>
                   </Stack>
@@ -2041,8 +2453,8 @@ export function App() {
                       <TableRow>
                         <TableCell padding="checkbox" sx={{ width: fitToScreen ? 'auto' : columnWidths.checkbox }}>
                           <Checkbox
-                            checked={selectedIds.size === filteredTableData.length && filteredTableData.length > 0}
-                            indeterminate={selectedIds.size > 0 && selectedIds.size < filteredTableData.length}
+                            checked={visibleIds.size > 0 && selectedVisibleIds.length === visibleIds.size}
+                            indeterminate={selectedVisibleIds.length > 0 && selectedVisibleIds.length < visibleIds.size}
                             onChange={(e) => handleSelectAll(e.target.checked)}
                           />
                         </TableCell>
@@ -2064,40 +2476,40 @@ export function App() {
                           </>
                         ) : (
                           <>
-                            <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize}>
+                            <ResizableCell column="article" width={columnWidths.article} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               Article
                             </ResizableCell>
-                            <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize}>
+                            <ResizableCell column="submitted" width={columnWidths.submitted} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               Req.Mnfc
                             </ResizableCell>
-                            <ResizableCell column="manufacturer" width={columnWidths.manufacturer} onResize={handleColumnResize}>
+                            <ResizableCell column="manufacturer" width={columnWidths.manufacturer} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               Manufacturer
                             </ResizableCell>
-                            <ResizableCell column="alias" width={columnWidths.alias} onResize={handleColumnResize}>
+                            <ResizableCell column="alias" width={columnWidths.alias} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               Alias
                             </ResizableCell>
-                            <ResizableCell column="match" width={columnWidths.match} onResize={handleColumnResize}>
+                            <ResizableCell column="match" width={columnWidths.match} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               Match
                             </ResizableCell>
-                            <ResizableCell column="confidence" width={columnWidths.confidence} onResize={handleColumnResize}>
+                            <ResizableCell column="confidence" width={columnWidths.confidence} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               Confidence
                             </ResizableCell>
-                            <ResizableCell column="source" width={columnWidths.source} onResize={handleColumnResize}>
+                            <ResizableCell column="source" width={columnWidths.source} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               Source
                             </ResizableCell>
-                            <ResizableCell column="whatProduces" width={columnWidths.whatProduces} onResize={handleColumnResize}>
+                            <ResizableCell column="whatProduces" width={columnWidths.whatProduces} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               Что производит
                             </ResizableCell>
-                            <ResizableCell column="website" width={columnWidths.website} onResize={handleColumnResize}>
+                            <ResizableCell column="website" width={columnWidths.website} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               Сайт производителя
                             </ResizableCell>
-                            <ResizableCell column="manufacturerAliases" width={columnWidths.manufacturerAliases} onResize={handleColumnResize}>
+                            <ResizableCell column="manufacturerAliases" width={columnWidths.manufacturerAliases} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               Алиасы
                             </ResizableCell>
-                            <ResizableCell column="country" width={columnWidths.country} onResize={handleColumnResize}>
+                            <ResizableCell column="country" width={columnWidths.country} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               Страна
                             </ResizableCell>
-                            <ResizableCell column="actions" width={columnWidths.actions} onResize={handleColumnResize}>
+                            <ResizableCell column="actions" width={columnWidths.actions} onResize={handleColumnResize} onResizeEnd={handleResizeEnd}>
                               <Box textAlign="center">Действия</Box>
                             </ResizableCell>
                           </>
@@ -2107,7 +2519,7 @@ export function App() {
                     <TableBody>
                       {filteredTableData.map((row, rowIndex) => {
                         const isExpanded = expandedTableRows.has(row.id)
-                        const hasLogs = row.debugLog || row.stageHistory
+                        const hasLogs = Boolean(row.debugLog) || (row.stageHistory?.length ?? 0) > 0
                         return (
                           <Fragment key={row.key}>
                             <TableRow hover sx={{ height: fitToScreen ? 'auto' : rowHeight }}>
@@ -2293,8 +2705,7 @@ export function App() {
                                                 debug_log: row.debugLog,
                                                 stage_history: row.stageHistory
                                               }, null, 2)
-                                              navigator.clipboard.writeText(logText)
-                                              setSnackbar('Логи скопированы в буфер обмена')
+                                              handleCopy(logText, 'Логи скопированы в буфер обмена')
                                             }}
                                           >
                                             <ContentCopy fontSize="small" />
@@ -2471,7 +2882,7 @@ export function App() {
                       <option value="request">Запрос</option>
                       <option value="response">Ответ</option>
                     </TextField>
-                    <Button variant="contained" startIcon={<FilterAlt />} onClick={() => loadLogs()} disabled={logsLoading}>
+                    <Button variant="contained" startIcon={<FilterAlt />} onClick={() => loadLogs(logFilters)} disabled={logsLoading}>
                       Обновить
                     </Button>
                     <FormControlLabel
@@ -2502,7 +2913,6 @@ export function App() {
                 </Box>
                 {logsLoading && <LinearProgress />}
                 <TableContainer
-                  ref={logsTableRef}
                   component={Paper}
                   variant="outlined"
                   sx={{ maxHeight: 540, borderRadius: 3 }}
@@ -2529,7 +2939,8 @@ export function App() {
                       ) : (
                         logs.map((entry) => {
                           const isExpanded = expandedLogIds.has(entry.id)
-                          const formattedPayload = formatJSON(entry.payload)
+                          // Форматируем JSON только для раскрытой записи
+                          const formattedPayload = isExpanded ? formatJSON(entry.payload) : ''
                           return (
                             <Fragment key={entry.id}>
                               <TableRow hover>
@@ -2568,7 +2979,7 @@ export function App() {
                                         size="small"
                                         onClick={(e) => {
                                           e.stopPropagation()
-                                          copyToClipboard(formatJSON(entry.payload) || entry.payload)
+                                          handleCopy(formatJSON(entry.payload) || (entry.payload ?? ''))
                                         }}
                                         title="Копировать полный payload"
                                       >
@@ -2590,7 +3001,7 @@ export function App() {
                                           <Button
                                             size="small"
                                             startIcon={<ContentCopy />}
-                                            onClick={() => copyToClipboard(formattedPayload || entry.query)}
+                                            onClick={() => handleCopy(formattedPayload || entry.query)}
                                           >
                                             Копировать
                                           </Button>
@@ -2624,7 +3035,7 @@ export function App() {
                                                 size="small"
                                                 variant="outlined"
                                                 startIcon={<ContentCopy />}
-                                                onClick={() => copyToClipboard(formattedPayload || entry.payload)}
+                                                onClick={() => handleCopy(formattedPayload || (entry.payload ?? ''))}
                                               >
                                                 Копировать payload
                                               </Button>
